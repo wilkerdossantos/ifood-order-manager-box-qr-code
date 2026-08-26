@@ -45,9 +45,14 @@ export function loadConfig(configPath?: string): ServiceConfig {
     ...DEFAULT_CONFIG,
     cachePath: path.join(dataDir, 'cache.json'),
     logPath: path.join(dataDir, 'logs'),
+    spoolDir: path.join(dataDir, 'spool'),
     electronAppDataPaths: getDefaultElectronPaths(),
     ...fileConfig,
   };
+
+  if (!config.spoolDir) {
+    config.spoolDir = path.join(dataDir, 'spool');
+  }
 
   fs.mkdirSync(path.dirname(config.cachePath), { recursive: true });
   fs.mkdirSync(config.logPath, { recursive: true });

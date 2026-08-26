@@ -7,6 +7,7 @@ import { ProxyInterceptor } from '../collector/proxy-interceptor.js';
 import { loadConfig, getDataDir } from '../config/index.js';
 import { PrintBridgeServer } from '../print/bridge-server.js';
 import { PrintPreviewWriter } from '../print/preview-writer.js';
+import { SpoolWatcher } from '../print/spool-watcher.js';
 import { InvoiceEnricher } from '../qr/invoice-enricher.js';
 import { ActivityLog } from '../utils/activity-log.js';
 import { createLogger } from '../utils/logger.js';
@@ -46,6 +47,12 @@ export class QrService {
     this.logger,
     this.activity,
   );
+  private spoolWatcher = new SpoolWatcher(
+    this.config,
+    this.enricher,
+    this.logger,
+    this.activity,
+  );
   private httpApi = new HttpApi({
     config: this.config,
     cache: this.cache,
@@ -60,6 +67,7 @@ export class QrService {
       cdpEnabled: this.config.cdpEnabled,
       cdpTargets: this.cdpCollector.getAvailableTargets(),
       printPreviewDir: this.previewWriter.getPreviewDir(),
+      spool: this.spoolWatcher.getDiagnostics(),
     }),
   });
   private statusReporter = createStatusReporter(
@@ -104,6 +112,7 @@ export class QrService {
     if (this.config.enabled) {
       this.electronWatcher.start();
       this.cdpCollector.start();
+      this.spoolWatcher.start();
     }
 
     this.activity.startupBanner({
@@ -132,6 +141,7 @@ export class QrService {
     this.cache.flush();
     await this.electronWatcher.stop();
     this.cdpCollector.stop();
+    await this.spoolWatcher.stop();
     await this.proxy.stop();
     await this.printBridge.stop();
     await this.httpApi.stop();

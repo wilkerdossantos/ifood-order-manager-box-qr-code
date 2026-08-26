@@ -39,6 +39,9 @@ export interface ServiceConfig {
   /** Salva cópia legível de cada comanda enriquecida (útil com Microsoft Print to PDF) */
   printPreviewEnabled: boolean;
   printPreviewDir: string;
+  /** Monitora pasta spool da impressora virtual (substituto RedMon no Windows 11) */
+  spoolWatchEnabled: boolean;
+  spoolDir: string;
 }
 
 export const DEFAULT_CONFIG: ServiceConfig = {
@@ -70,6 +73,8 @@ export const DEFAULT_CONFIG: ServiceConfig = {
   cdpReconnectSeconds: 8,
   printPreviewEnabled: true,
   printPreviewDir: '',
+  spoolWatchEnabled: true,
+  spoolDir: '',
 };
 
 export interface PrintMeta {

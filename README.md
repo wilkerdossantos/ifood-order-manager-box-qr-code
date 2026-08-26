@@ -108,70 +108,45 @@ Arquivo: `%ProgramData%\iFoodQrService\config.json`
 | `/print` | POST | Enriquece body JSON de print (compatível extensão) |
 | `/config/ca-cert` | GET | Download certificado CA |
 
-## Impressao sem RedMon (recomendado)
+## Impressora virtual (Windows 11, sem RedMon)
 
-**Nao precisa de RedMon nem impressora virtual.** O hook intercepta `printOrder` no processo principal do Gestor.
+Impressora **iFood QR Bridge** + servico monitorando arquivo spool (substituto do RedMon).
 
 ```
-Gestor (*.ifood-qr.lnk) → print-main-hook.cjs → servico :7420 → Microsoft Print to PDF / termica
+Gestor -> "iFood QR Bridge" -> output.prn -> [SPOOL] watcher -> impressora destino
 ```
 
 ```powershell
-# 1. Servico rodando
+# PowerShell Admin
+npm run install:virtual-printer -- -TargetPrinter "Microsoft Print to PDF"
 npm run dev
 
-# 2. Cria atalho do Gestor com CDP + hook de impressao
-npm run enable:gestor
-# ou: .\scripts\enable-gestor-debug.ps1
-
-# 3. Feche o Gestor e abra pelo atalho *.ifood-qr.lnk
-# 4. No Gestor, escolha a impressora normal (ex: Microsoft Print to PDF)
-# 5. Imprima apos [PEDIDO CAPTURADO]
+# Gestor -> Impressora -> "iFood QR Bridge"
 ```
 
-No **console do Gestor** (nao do npm), ao abrir:
+Log ao imprimir no terminal do servico:
 
 ```
-[iFood QR] print-main-hook.cjs carregado
-[iFood QR] Interceptacao de impressao ativa
-```
-
-Ao imprimir:
-
-```
-[iFood QR] Impressao interceptada -> Microsoft Print to PDF
-[iFood QR] QR adicionado — LOJA:...|NP:6798|...
-```
-
-Preview da comanda: `C:\ProgramData\iFoodQrService\print-preview\`
-
-Teste rapido sem imprimir:
-
-```powershell
-npm run test:print-pdf
-```
-
----
-
-## Impressao via impressora virtual (opcional, requer RedMon)
-
-So use se nao puder modificar o atalho do Gestor. Requer [RedMon](https://www.ghostgum.com.au/software/redmon.htm) (nao suporta Windows 10/11 oficialmente).
-
-```
-Gestor → "iFood QR Bridge" (virtual) → RedMon → print-port-receiver.js → servico → impressora fisica
-```
-
-```powershell
-.\scripts\install-virtual-printer.ps1 -TargetPrinter "Microsoft Print to PDF"
+[SPOOL] Job de impressao detectado
+[SPOOL] QR adicionado a comanda
+[SPOOL] Comanda encaminhada para impressora
 ```
 
 Detalhes: [docs/PRINT-BRIDGE-DRIVER.md](docs/PRINT-BRIDGE-DRIVER.md)
 
 ---
 
-## Impressao — referencia (hook)
+## Alternativa: hook no Gestor (sem impressora virtual)
 
-## Print Bridge
+```powershell
+npm run dev
+npm run enable:gestor
+# Abrir Gestor pelo atalho *.ifood-qr.lnk
+```
+
+---
+
+## Print Bridge (named pipe)
 
 Integração com driver/impressora virtual via named pipe:
 
