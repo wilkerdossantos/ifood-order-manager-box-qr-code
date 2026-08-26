@@ -45,15 +45,16 @@ if (-not (Test-Path $ReceiverScript)) {
     Write-Error "Receiver nao encontrado: $ReceiverScript"
 }
 
-# Atualizar config.json com target printer
+# Atualizar config.json com target printer (compativel PowerShell 5.1)
 if ($TargetPrinter) {
     New-Item -ItemType Directory -Path (Split-Path $ConfigPath) -Force | Out-Null
-    $config = @{}
     if (Test-Path $ConfigPath) {
-        $config = Get-Content $ConfigPath -Raw | ConvertFrom-Json -AsHashtable
+        $config = Get-Content $ConfigPath -Raw | ConvertFrom-Json
+    } else {
+        $config = New-Object PSObject
     }
-    $config["printerName"] = $VirtualPrinterName
-    $config["targetPrinterName"] = $TargetPrinter
+    $config | Add-Member -NotePropertyName printerName -NotePropertyValue $VirtualPrinterName -Force
+    $config | Add-Member -NotePropertyName targetPrinterName -NotePropertyValue $TargetPrinter -Force
     $config | ConvertTo-Json -Depth 10 | Set-Content $ConfigPath -Encoding UTF8
     Write-Host "Config atualizado: targetPrinterName = $TargetPrinter" -ForegroundColor Green
 } else {
