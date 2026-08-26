@@ -21,6 +21,49 @@ interface ProxyInterceptorOptions {
   certDir: string;
 }
 
+/** Prevents ECONNRESET / EPIPE from crashing the process as unhandled socket errors. */
+function guardSocket(socket: net.Socket, logger: Logger, label: string): void {
+  if ((socket as net.Socket & { __ifoodQrGuarded?: boolean }).__ifoodQrGuarded) return;
+  (socket as net.Socket & { __ifoodQrGuarded?: boolean }).__ifoodQrGuarded = true;
+
+  socket.on('error', (err: NodeJS.ErrnoException) => {
+    const benign = err.code === 'ECONNRESET' || err.code === 'EPIPE' || err.code === 'ECANCELED';
+    if (benign) {
+      logger.debug('[PROXY] Conexão encerrada', { label, code: err.code });
+      return;
+    }
+    logger.debug('[PROXY] Erro de socket', { label, code: err.code, error: err.message });
+  });
+}
+
+function safeWrite(socket: net.Socket, data: string | Buffer, logger: Logger, label: string): void {
+  if (socket.destroyed || !socket.writable) return;
+  try {
+    socket.write(data);
+  } catch (err) {
+    const code = (err as NodeJS.ErrnoException).code;
+    logger.debug('[PROXY] Falha ao escrever na conexão', { label, code });
+  }
+}
+
+function safeEnd(socket: net.Socket): void {
+  if (socket.destroyed) return;
+  try {
+    socket.end();
+  } catch {
+    // ignore
+  }
+}
+
+function safeDestroy(socket: net.Socket): void {
+  if (socket.destroyed) return;
+  try {
+    socket.destroy();
+  } catch {
+    // ignore
+  }
+}
+
 export class ProxyInterceptor {
   private server: http.Server | null = null;
   private caCertPath: string;
@@ -77,14 +120,18 @@ export class ProxyInterceptor {
         this.handleConnect(req, clientSocket as net.Socket, head);
       });
 
+      this.server.once('error', reject);
+
       this.server.listen(this.options.config.proxyPort, '127.0.0.1', () => {
+        this.server?.off('error', reject);
+        this.server?.on('error', (err) => {
+          this.options.logger.warn('[PROXY] Erro no servidor HTTP', { error: err.message });
+        });
         this.options.logger.info('HTTP(S) proxy listening', {
           port: this.options.config.proxyPort,
         });
         resolve();
       });
-
-      this.server.on('error', reject);
     });
   }
 
@@ -136,6 +183,8 @@ export class ProxyInterceptor {
     clientSocket: net.Socket,
     head: Buffer,
   ): void {
+    guardSocket(clientSocket, this.options.logger, 'client-connect');
+
     const [hostname, portStr] = (req.url || '').split(':');
     const port = parseInt(portStr || '443', 10);
 
@@ -144,16 +193,34 @@ export class ProxyInterceptor {
       return;
     }
 
-    const { cert, key } = this.createHostCertificate(hostname);
+    try {
+      const { cert, key } = this.createHostCertificate(hostname);
 
-    clientSocket.write('HTTP/1.1 200 Connection Established\r\n\r\n');
+      safeWrite(
+        clientSocket,
+        'HTTP/1.1 200 Connection Established\r\n\r\n',
+        this.options.logger,
+        'connect-response',
+      );
 
-    const tlsServer = tls.createServer({ cert, key }, (tlsSocket) => {
-      this.handleTlsClient(tlsSocket, hostname, port);
-    });
+      const tlsServer = tls.createServer({ cert, key }, (tlsSocket) => {
+        guardSocket(tlsSocket, this.options.logger, 'tls-client');
+        this.handleTlsClient(tlsSocket, hostname, port);
+      });
 
-    tlsServer.on('error', () => clientSocket.destroy());
-    tlsServer.emit('connection', clientSocket);
+      tlsServer.on('error', (err) => {
+        this.options.logger.debug('[PROXY] TLS server error', { error: err.message });
+        safeDestroy(clientSocket);
+      });
+
+      tlsServer.emit('connection', clientSocket);
+    } catch (err) {
+      this.options.logger.debug('[PROXY] MITM handshake failed, tunneling direct', {
+        hostname,
+        error: err instanceof Error ? err.message : String(err),
+      });
+      this.tunnelDirect(hostname, port, clientSocket, head);
+    }
   }
 
   private tunnelDirect(
@@ -162,13 +229,29 @@ export class ProxyInterceptor {
     clientSocket: net.Socket,
     head: Buffer,
   ): void {
+    if (!hostname) {
+      safeDestroy(clientSocket);
+      return;
+    }
+
     const serverSocket = net.connect(port, hostname, () => {
-      clientSocket.write('HTTP/1.1 200 Connection Established\r\n\r\n');
-      serverSocket.write(head);
+      safeWrite(
+        clientSocket,
+        'HTTP/1.1 200 Connection Established\r\n\r\n',
+        this.options.logger,
+        'tunnel-response',
+      );
+      if (head.length > 0) serverSocket.write(head);
+
       serverSocket.pipe(clientSocket);
       clientSocket.pipe(serverSocket);
     });
-    serverSocket.on('error', () => clientSocket.end());
+
+    guardSocket(serverSocket, this.options.logger, 'tunnel-server');
+
+    serverSocket.on('error', () => safeEnd(clientSocket));
+    clientSocket.on('close', () => safeDestroy(serverSocket));
+    serverSocket.on('close', () => safeDestroy(clientSocket));
   }
 
   private handleTlsClient(tlsSocket: tls.TLSSocket, hostname: string, port: number): void {
@@ -179,6 +262,10 @@ export class ProxyInterceptor {
       this.processPendingRequests(tlsSocket, pending, hostname, port, (remaining) => {
         pending = remaining;
       });
+    });
+
+    tlsSocket.on('close', () => {
+      pending = Buffer.alloc(0);
     });
   }
 
@@ -195,7 +282,10 @@ export class ProxyInterceptor {
     const headerText = buffer.subarray(0, headerEnd).toString('utf-8');
     const body = buffer.subarray(headerEnd + 4);
     const lines = headerText.split('\r\n');
-    const [method, reqPath] = lines[0].split(' ');
+    const requestLine = lines[0] || '';
+    const parts = requestLine.split(' ');
+    const method = parts[0] || 'GET';
+    const reqPath = parts[1] || '/';
     const url = `https://${hostname}${reqPath}`;
 
     const headers: Record<string, string> = {};
@@ -235,6 +325,8 @@ export class ProxyInterceptor {
     hostname: string,
     port: number,
   ): void {
+    if (clientSocket.destroyed) return;
+
     this.logProxyTraffic(method, url);
 
     if (shouldIngestUrl(url, this.options.config.ingestUrlPattern) && body.length > 0) {
@@ -261,8 +353,19 @@ export class ProxyInterceptor {
       },
       (res) => {
         const chunks: Buffer[] = [];
+
         res.on('data', (c) => chunks.push(c));
+        res.on('error', (err) => {
+          this.options.logger.debug('[PROXY] Erro na resposta upstream', {
+            url,
+            error: err.message,
+          });
+          safeDestroy(clientSocket);
+        });
+
         res.on('end', () => {
+          if (clientSocket.destroyed) return;
+
           const responseBody = Buffer.concat(chunks);
 
           if (shouldIngestUrl(url, this.options.config.ingestUrlPattern)) {
@@ -284,13 +387,25 @@ export class ProxyInterceptor {
             .map(([k, v]) => `${k}: ${Array.isArray(v) ? v.join(', ') : v}`)
             .join('\r\n');
 
-          clientSocket.write(`${statusLine}${resHeaders}\r\n\r\n`);
-          clientSocket.write(responseBody);
+          safeWrite(
+            clientSocket,
+            `${statusLine}${resHeaders}\r\n\r\n`,
+            this.options.logger,
+            'response-headers',
+          );
+          safeWrite(clientSocket, responseBody, this.options.logger, 'response-body');
         });
       },
     );
 
-    req.on('error', () => clientSocket.end());
+    req.on('error', (err) => {
+      this.options.logger.debug('[PROXY] Erro na requisição upstream', {
+        url,
+        error: err.message,
+      });
+      safeEnd(clientSocket);
+    });
+
     if (body.length > 0) req.write(body);
     req.end();
   }

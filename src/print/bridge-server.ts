@@ -5,6 +5,15 @@ import type { Logger } from '../utils/logger.js';
 import type { ActivityLog } from '../utils/activity-log.js';
 import type { InvoiceEnricher } from '../qr/invoice-enricher.js';
 
+function guardSocket(socket: net.Socket, logger: Logger, label: string): void {
+  socket.on('error', (err: NodeJS.ErrnoException) => {
+    const benign = err.code === 'ECONNRESET' || err.code === 'EPIPE';
+    if (!benign) {
+      logger.debug('[PRINT BRIDGE] Erro de socket', { label, code: err.code, error: err.message });
+    }
+  });
+}
+
 export interface PrintBridgeRequest {
   action: 'enrich' | 'health';
   invoice?: string;
@@ -43,6 +52,7 @@ export class PrintBridgeServer {
   start(): Promise<void> {
     return new Promise((resolve, reject) => {
       this.server = net.createServer((socket) => {
+        guardSocket(socket, this.logger, 'print-bridge');
         let buffer = '';
         socket.on('data', async (chunk) => {
           buffer += chunk.toString('utf-8');

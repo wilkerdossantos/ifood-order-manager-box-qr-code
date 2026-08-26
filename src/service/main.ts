@@ -102,7 +102,22 @@ export class QrService {
   }
 }
 
+function installProcessGuards(): void {
+  process.on('uncaughtException', (err: NodeJS.ErrnoException) => {
+    if (err.code === 'ECONNRESET' || err.code === 'EPIPE' || err.code === 'ECANCELED') {
+      return;
+    }
+    console.error('Uncaught exception:', err);
+    process.exit(1);
+  });
+
+  process.on('unhandledRejection', (reason) => {
+    console.error('Unhandled rejection:', reason);
+  });
+}
+
 async function main(): Promise<void> {
+  installProcessGuards();
   const service = new QrService();
 
   const shutdown = async (signal: string) => {
