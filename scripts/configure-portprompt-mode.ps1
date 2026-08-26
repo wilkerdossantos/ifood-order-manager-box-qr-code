@@ -16,19 +16,20 @@ $ConfigPath = "$env:ProgramData\iFoodQrService\config.json"
 $SpoolDir = "$env:ProgramData\iFoodQrService\spool"
 
 Write-Host ""
-Write-Host "=== iFood QR — modo PORTPROMPT + PDF ===" -ForegroundColor Cyan
+Write-Host "=== iFood QR - modo PORTPROMPT + PDF ===" -ForegroundColor Cyan
 Write-Host ""
 
 $printer = Get-Printer -Name $VirtualPrinterName -ErrorAction SilentlyContinue
 if (-not $printer) {
     Write-Host "AVISO: impressora '$VirtualPrinterName' nao encontrada." -ForegroundColor Yellow
     Write-Host "Crie manualmente: PORTPROMPT + Microsoft Print to PDF" -ForegroundColor Yellow
-} else {
+}
+else {
     Write-Host "Impressora: $VirtualPrinterName" -ForegroundColor Green
     Write-Host "  Porta:   $($printer.PortName)"
     Write-Host "  Driver:  $($printer.DriverName)"
     if ($printer.PortName -notlike "PORTPROMPT*") {
-        Write-Host "  AVISO: porta nao e PORTPROMPT — fila pode nao interceptar." -ForegroundColor Yellow
+        Write-Host "  AVISO: porta nao e PORTPROMPT - fila pode nao interceptar." -ForegroundColor Yellow
     }
 }
 
@@ -37,7 +38,8 @@ New-Item -ItemType Directory -Path (Split-Path $ConfigPath) -Force | Out-Null
 
 if (Test-Path $ConfigPath) {
     $config = Get-Content $ConfigPath -Raw | ConvertFrom-Json
-} else {
+}
+else {
     $config = New-Object PSObject
 }
 

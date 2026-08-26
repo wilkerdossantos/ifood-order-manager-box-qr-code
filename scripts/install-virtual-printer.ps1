@@ -255,7 +255,7 @@ if ($existing) {
     $drv = (Get-Printer -Name $VirtualPrinterName).DriverName
     Write-Host "  Porta: $port | Driver: $drv" -ForegroundColor Gray
     if ($port -like "PORTPROMPT*") {
-        Write-Host "  Modo PORTPROMPT detectado — fila Windows sera monitorada pelo servico." -ForegroundColor Cyan
+        Write-Host "  Modo PORTPROMPT detectado - fila Windows sera monitorada pelo servico." -ForegroundColor Cyan
     }
     $printerOk = $true
 } else {
