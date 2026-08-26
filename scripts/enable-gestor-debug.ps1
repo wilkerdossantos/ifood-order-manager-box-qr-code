@@ -108,10 +108,10 @@ Write-Host "  1. npm run dev"
 Write-Host "  2. Feche o Gestor completamente"
 Write-Host "  3. Abra pelo atalho *.ifood-qr.lnk"
 Write-Host "  4. No Gestor, selecione a impressora FISICA ou Microsoft Print to PDF"
-Write-Host "     NAO use 'iFood QR Bridge' — o hook injeta QR antes da impressora"
+Write-Host "     NAO use 'iFood QR Bridge' - o hook injeta QR antes da impressora"
 Write-Host "  5. Ao imprimir, no console do Gestor:"
 Write-Host "     [iFood QR] print-main-hook.cjs carregado"
 Write-Host "     [iFood QR] QR adicionado"
 Write-Host ""
-Write-Host "Preview: C:\ProgramData\iFoodQrService\print-preview\" -ForegroundColor Gray
+Write-Host 'Preview: C:\ProgramData\iFoodQrService\print-preview\' -ForegroundColor Gray
 Write-Host ""
