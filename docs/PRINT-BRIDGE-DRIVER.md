@@ -1,76 +1,108 @@
-# Print Bridge — Impressora Virtual (Windows 11, sem RedMon)
+# Print Bridge — Gestor Desktop (Windows 11)
 
-RedMon [nao suporta Windows 10/11](https://www.ghostgum.com.au/software/redmon.htm).
+## Caminho recomendado: hook IPC (sem RedMon, sem impressora virtual)
 
-## Modo A — PORTPROMPT + Microsoft Print to PDF (Windows 11)
-
-Quando Generic/Text nao esta disponivel, use esta configuracao:
+O Gestor Desktop é Electron. A solução nativa intercepta `printOrder` no **processo principal** antes do spooler Windows:
 
 ```
-Gestor Desktop
-    |  imprime em "iFood QR Bridge" (PORTPROMPT + PDF driver)
+Gestor Desktop (--require print-main-hook.cjs)
+    │  ipcMain printOrder(invoice)
     v
-Fila Windows (SPL/SHD em spool\PRINTERS)
-    |  PrintQueueWatcher detecta job
+print-main-hook.cjs → enrich-cli.cjs → POST /print/enrich (retry 2s)
+    │  invoice + QR ESC/POS
     v
-capture-print-job.ps1 (captura bytes, cancela job na Bridge)
-    |  enrichInvoice + debug txt
-    v
-targetPrinterName (TEXT se PDF, RAW se termica)
+Impressora escolhida no Gestor (física ou Microsoft Print to PDF)
 ```
+
+### Setup
 
 ```powershell
-# Admin obrigatorio (leitura de C:\Windows\System32\spool\PRINTERS)
-npm run install:virtual-printer -- -TargetPrinter "Microsoft Print to PDF" -UsePortPrompt
 npm run dev
+npm run enable:gestor
+# Abrir Gestor pelo atalho *.ifood-qr.lnk
+# Selecionar impressora FÍSICA ou Print to PDF — NÃO "iFood QR Bridge"
 ```
 
-## Modo B — Porta arquivo (Generic / Text Only)
+### Logs esperados
+
+No console do Gestor:
 
 ```
-Porta local: C:\ProgramData\iFoodQrService\spool\output.prn
-    -> SpoolWatcher
+[iFood QR] print-main-hook.cjs carregado (porta 7420)
+[iFood QR] Interceptação ativa (on → :7420)
+[iFood QR] Impressão interceptada → EPSON TM-T20
+[iFood QR] QR adicionado — LOJA:...|NP:6798|...
 ```
 
-## Config (`config.json`)
+No serviço (`npm run dev`):
+
+```
+[CDP] Pedido capturado (network)
+[CDP] Conectado ao Gestor (multi-target)
+```
+
+### Config relevante
 
 ```json
 {
-  "printerName": "iFood QR Bridge",
-  "targetPrinterName": "Microsoft Print to PDF",
-  "printQueueWatchEnabled": true,
-  "spoolWatchEnabled": true,
-  "printDebugEnabled": true,
-  "spoolDir": "C:\\ProgramData\\iFoodQrService\\spool"
+  "printCacheWaitMs": 2000,
+  "printQueueWatchEnabled": false,
+  "cdpPrintHookEnabled": false
 }
 ```
 
-## Verificar
+`printCacheWaitMs` — tempo de retry se o pedido ainda não estiver no cache no momento da impressão.
 
-```powershell
-curl http://127.0.0.1:7420/diagnostics
-# queue.enabled=true, queue.jobsProcessed incrementa apos imprimir
-curl http://127.0.0.1:7420/print/debug
+---
+
+## Fallback experimental: impressora virtual + fila Windows
+
+RedMon [não suporta Windows 10/11](https://www.ghostgum.com.au/software/redmon.htm).
+
+O modo PORTPROMPT + fila Windows é **experimental** — requer PowerShell Admin, parse frágil de SPL, e conflita com o hook IPC se ambos estiverem ativos.
+
+```
+Gestor → "iFood QR Bridge" (PORTPROMPT)
+    → PrintQueueWatcher → capture-print-job.ps1
+    → enrich → targetPrinterName
 ```
 
-## Troubleshooting
+```powershell
+npm run install:virtual-printer -- -TargetPrinter "Microsoft Print to PDF" -UsePortPrompt
+npm run configure:portprompt
+npm run dev   # Admin
+```
 
-| Sintoma | Solucao |
+Habilite explicitamente:
+
+```json
+{
+  "printQueueWatchEnabled": true,
+  "targetPrinterName": "Microsoft Print to PDF"
+}
+```
+
+### Troubleshooting (modo experimental)
+
+| Sintoma | Solução |
 |---------|---------|
-| `[QUEUE]` nao aparece | `npm run dev` como **Admin**? Gestor usa "iFood QR Bridge"? |
-| `SPL nao encontrado` | Executar servico como Administrador |
-| QR nao adicionado | Pedido capturado via CDP antes de imprimir? Veja `*-meta.json` |
-| PDF ilegivel / binario | `targetPrinterName` deve conter "PDF" — envia TEXT, nao ESC/POS |
-| Dialogo PORTPROMPT aparece | Job nao foi cancelado — confirme Admin + `[QUEUE]` nos logs |
+| `[QUEUE]` não aparece | `npm run dev` como **Admin** |
+| `SPL nao encontrado` | Admin + impressora virtual correta |
+| QR não adicionado | Pedido no cache? `[CDP] Pedido capturado` antes de imprimir |
+| Dialogo PORTPROMPT | Job não cancelado — use hook IPC em vez disso |
 
-## Debug
+---
 
-Arquivos em `C:\ProgramData\iFoodQrService\spool\debug\`:
+## Named pipe (integrações externas)
 
-- `*-readable.txt` — comanda legivel
-- `*-enriched.txt` — com QR (texto se PDF)
-- `*-meta.json` — modified, payload, cache
+```
+\\.\pipe\ifood-qr-service
+```
+
+Protocolo JSON + newline — ver [README.md](../README.md#print-bridge-named-pipe).
+
+---
 
 ## Captura de pedidos
 
-Ainda requer CDP (`enable-gestor-debug.ps1`) ou ingest manual para popular o cache antes da impressao.
+Requer CDP (`enable-gestor-debug.ps1`) — multi-target captura MFEs/webviews do Gestor.

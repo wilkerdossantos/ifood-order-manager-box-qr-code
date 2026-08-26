@@ -92,6 +92,8 @@ export class ElectronStoreWatcher {
   }
 
   start(): void {
+    if (!this.config.electronStoreWatchEnabled) return;
+
     const appData = process.env.APPDATA || path.join(os.homedir(), 'AppData', 'Roaming');
     const discovered = discoverElectronAppDataPaths(appData);
     const configured = this.config.electronAppDataPaths.filter((p) => fs.existsSync(p));

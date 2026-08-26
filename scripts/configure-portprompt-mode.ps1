@@ -59,7 +59,9 @@ Write-Host "  printQueueWatchEnabled = true  (intercepta fila Windows)"
 Write-Host "  spoolWatchEnabled      = false (nao usa porta arquivo)"
 Write-Host "  targetPrinterName      = $TargetPrinter"
 Write-Host ""
-Write-Host "Proximo passo:" -ForegroundColor Cyan
+Write-Host "AVISO: Impressora virtual 'iFood QR Bridge' e experimental." -ForegroundColor Yellow
+Write-Host "       Prefira impressora fisica ou Print to PDF direto." -ForegroundColor Yellow
+Write-Host ""
 Write-Host "  1. PowerShell Admin: npm run dev"
 Write-Host "  2. npm run enable:gestor  (CDP captura pedidos + hook impressao)"
 Write-Host "  3. Imprimir pelo Gestor em '$VirtualPrinterName'"

@@ -4,9 +4,9 @@ Serviço Windows que captura dados de pedidos do **Gestor de Pedidos Desktop** (
 
 ## O que faz
 
-1. **Captura pedidos** via CDP (Chrome DevTools Protocol) na porta debug do Gestor + scan do cache Electron
-2. **Mantém cache** com os campos necessários para o QR: `merchantId`, `displayId`, `pickupCode`, `orderType`, `orderId`
-3. **Enriquece comandas** com QR ESC/POS via Print Bridge (named pipe) ou API HTTP local
+1. **Captura pedidos** via CDP multi-target na porta debug do Gestor (9222)
+2. **Mantém cache** JSON com dedup e TTL (`cache.json`) — campos do QR: `merchantId`, `displayId`, `pickupCode`, `orderType`, `orderId`
+3. **Enriquece comandas** via hook IPC no Gestor (`print-main-hook.cjs`) — sem RedMon, sem impressora virtual
 4. **Roda como serviço Windows** com auto-start
 
 ### Payload do QR
@@ -15,6 +15,18 @@ Serviço Windows que captura dados de pedidos do **Gestor de Pedidos Desktop** (
 LOJA:{merchantId}|NP:{displayId}|CR:{pickupCode}|TIPO:{orderType}|ID:{orderId}
 ```
 
+## Duas soluções
+
+Este repositório implementa **duas soluções distintas** que se encontram no fluxo de impressão:
+
+1. **Order Tracker** — captura pedidos do Gestor via CDP (porta debug 9222), persiste em cache JSON (`cache.json`) e expõe os dados na API local (`GET /orders`, `GET /orders/:displayId`). Evita consultas repetidas e centraliza `merchantId`, `displayId`, `pickupCode`, `orderType` e `orderId`.
+
+2. **Print Bridge** — intercepta `printOrder` no processo principal do Electron (`print-main-hook.cjs`), consulta cache/API local, injeta QR e imprime na impressora **direta** (física ou Print to PDF).
+
+Hoje ambas rodam no **mesmo processo** (`QrService`). **Não use impressora virtual** `iFood QR Bridge` — o hook injeta QR antes da impressora escolhida no Gestor.
+
+Documentação completa: **[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)** — diagramas, contratos de API, matriz de deployment e limitações.
+
 ## Arquitetura
 
 ```
@@ -22,7 +34,7 @@ Gestor Desktop (Electron) — porta debug 9222
     │
     ├── CDP Network + fetch/XHR hooks ──► Order Cache  (principal)
     ├── electron-store / IndexedDB ──► File Watcher ──► Order Cache  (secundário)
-    └── IPC printOrder ──► Impressora ──► Print Bridge (pipe) ──► + QR ESC/POS
+    └── IPC printOrder ──► Print Bridge ──► + QR ESC/POS ──► Impressora
 ```
 
 ## Requisitos
@@ -41,14 +53,16 @@ cd ifood-order-manager-box-qr-code
 npm install
 npm run build
 
-# 2. Habilitar debug no Gestor (OBRIGATÓRIO para capturar pedidos)
+# 2. Habilitar CDP + hook de impressão no Gestor
 .\scripts\enable-gestor-debug.ps1
-# Feche o Gestor e abra pelo atalho *debug* criado
+# Feche o Gestor e abra pelo atalho *.ifood-qr.lnk
 
-# 3. Rode o serviço (NÃO configure proxy do Windows)
+# 3. Rode o serviço
 npm run dev
 
-# 4. Receba um pedido no Gestor — deve aparecer [CDP] Pedido capturado
+# 4. No Gestor: selecione impressora FÍSICA ou Microsoft Print to PDF (NÃO "iFood QR Bridge")
+# 5. Receba um pedido — [CDP] Pedido capturado
+# 6. Imprima — [iFood QR] QR adicionado (console do Gestor)
 ```
 
 **Por que CDP?** O Gestor Desktop guarda pedidos no IndexedDB (formato binário V8). Ler arquivos não captura pedidos novos. A porta debug permite interceptar as APIs em tempo real — igual à extensão Chrome.
@@ -90,10 +104,14 @@ Arquivo: `%ProgramData%\iFoodQrService\config.json`
 |-------|---------|-----------|
 | `enabled` | `true` | Liga/desliga o serviço |
 | `pdfMode` | `false` | Modo texto (sem ESC/POS binário) |
-| `proxyPort` | `8888` | Porta do proxy HTTPS |
 | `healthPort` | `7420` | Porta da API local |
-| `targetPrinterName` | `""` | Impressora física de destino (print bridge) |
-| `pipeName` | `ifood-qr-service` | Named pipe do print bridge |
+| `printCacheWaitMs` | `2000` | Espera pelo pedido no cache antes de imprimir sem QR |
+| `cacheMaxAgeHours` | `24` | TTL de pedidos no cache (0 = sem expiração) |
+| `printQueueWatchEnabled` | `false` | Fila Windows — **experimental**, requer Admin |
+| `cdpPrintHookEnabled` | `false` | Hook CDP renderer (fallback; use print-main-hook) |
+| `electronStoreWatchEnabled` | `false` | Scan electron-store (backup não confiável) |
+| `targetPrinterName` | `""` | Destino ao reencaminhar jobs da fila (modo experimental) |
+| `pipeName` | `ifood-qr-service` | Named pipe para integrações externas |
 
 ## API local
 
@@ -108,72 +126,24 @@ Arquivo: `%ProgramData%\iFoodQrService\config.json`
 | `/print` | POST | Enriquece body JSON de print (compatível extensão) |
 | `/config/ca-cert` | GET | Download certificado CA |
 
-## Impressora virtual (Windows 11) — PORTPROMPT + PDF
+## Impressora virtual (experimental — fallback)
 
-**No Windows 11 a porta arquivo (`output.prn`) costuma falhar.** Use a configuracao que funciona no seu PC:
+**Recomendado:** use `print-main-hook.cjs` + impressora direta (sem virtual).
 
-| Campo | Valor |
-|-------|-------|
-| Porta | **PORTPROMPT** |
-| Driver | **Microsoft Print to PDF** |
-| Nome | **iFood QR Bridge** |
-
-O servico intercepta pela **fila Windows** (nao pelo arquivo).
+A impressora virtual `iFood QR Bridge` (PORTPROMPT + fila Windows) é **experimental** no Windows 11 — requer Admin, parse de SPL frágil, e conflita com o hook IPC. Só use se o hook não funcionar.
 
 ```powershell
-# PowerShell Admin — so atualiza config (impressora ja criada manualmente)
-npm run configure:portprompt
-
-npm run build
-npm run enable:gestor   # CDP + hook de impressao no Gestor
-npm run dev             # Admin obrigatorio
+npm run configure:portprompt   # habilita printQueueWatchEnabled
+npm run dev                    # Admin obrigatório
 ```
 
-```json
-{
-  "printQueueWatchEnabled": true,
-  "spoolWatchEnabled": false,
-  "targetPrinterName": "Microsoft Print to PDF"
-}
+Log esperado com hook (caminho recomendado):
+
 ```
-
-### Duas formas de injetar QR (use as duas)
-
-1. **CDP no Gestor** (melhor) — intercepta antes de imprimir; QR em texto legivel para PDF
-2. **Fila Windows `[QUEUE]`** (backup) — captura job na Bridge, cancela PDF quebrado, reimprime enriquecido
-
-Log CDP: `[CDP] Impressao interceptada` → `[CDP] QR adicionado`  
-Log fila: `[QUEUE] Job de impressao detectado` → `[PRINT DEBUG] Dump salvo`
-
-**Nao mude para porta arquivo** se da erro no Gestor — e esperado no Win11.
-
-**Modo debug** — arquivos em `C:\ProgramData\iFoodQrService\spool\debug\`:
-
-| Arquivo | Conteudo |
-|---------|----------|
-| `*-readable.txt` | Texto legivel da comanda (strip ESC/POS) |
-| `*-enriched.txt` | O que vai para a impressora (+ QR se injetado) |
-| `*-raw.bin` | Bytes brutos |
-| `*-meta.json` | Pedido no cache, payload, modified |
-
-```powershell
-curl http://127.0.0.1:7420/print/debug
-curl http://127.0.0.1:7420/diagnostics
+[iFood QR] print-main-hook.cjs carregado
+[iFood QR] Impressão interceptada → EPSON TM-T20
+[iFood QR] QR adicionado — LOJA:...|NP:6798|...
 ```
-
-Detalhes: [docs/PRINT-BRIDGE-DRIVER.md](docs/PRINT-BRIDGE-DRIVER.md)
-
----
-
-## Alternativa: hook no Gestor (sem impressora virtual)
-
-```powershell
-npm run dev
-npm run enable:gestor
-# Abrir Gestor pelo atalho *.ifood-qr.lnk
-```
-
----
 
 ## Print Bridge (named pipe)
 
@@ -262,5 +232,6 @@ Consulte [docs/PHASE0-TRAFFIC-CAPTURE.md](docs/PHASE0-TRAFFIC-CAPTURE.md) para v
 
 ## Referências
 
+- [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) — arquitetura Order Tracker + Print Bridge
 - Lógica portada de [extensao-bruna/page-bridge.js](../extensao-bruna/page-bridge.js)
 - Gestor Desktop: [order-manager-legacy-desktop](../iFood/order-manager-legacy-desktop) (shell Electron, print via IPC)

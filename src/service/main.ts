@@ -21,7 +21,14 @@ export class QrService {
   private config = loadConfig();
   private logger = createLogger(this.config);
   private activity = new ActivityLog(this.logger);
-  private cache = new OrderCache(this.config.cachePath);
+  private cache = new OrderCache(this.config.cachePath, {
+    cacheMaxAgeHours: this.config.cacheMaxAgeHours,
+    printCacheWaitMs: this.config.printCacheWaitMs,
+    onPersistError: (err) =>
+      this.logger.warn('[CACHE] Falha ao persistir cache.json', {
+        error: err instanceof Error ? err.message : String(err),
+      }),
+  });
   private previewWriter = new PrintPreviewWriter(this.config, this.logger);
   private debugWriter = new PrintDebugWriter(this.config, this.logger);
   private enricher = new InvoiceEnricher(this.cache, this.config, this.previewWriter);
@@ -41,7 +48,7 @@ export class QrService {
   private cdpCollector = new CdpCollector(
     this.config,
     this.cache,
-    this.enricher,
+    this.config.cdpPrintHookEnabled ? this.enricher : null,
     this.logger,
     this.activity,
   );
@@ -79,6 +86,7 @@ export class QrService {
       cdpPort: this.config.cdpPort,
       cdpEnabled: this.config.cdpEnabled,
       cdpTargets: this.cdpCollector.getAvailableTargets(),
+      cdpAttachedSessions: this.cdpCollector.getAttachedSessionCount(),
       printPreviewDir: this.previewWriter.getPreviewDir(),
       printDebugDir: this.debugWriter.getDebugDir(),
       spool: this.spoolWatcher.getDiagnostics(),
@@ -120,12 +128,16 @@ export class QrService {
       }
     } else {
       this.logger.info(
-        'Proxy desabilitado — modo Gestor Desktop (capture via electron-store, sem proxy Windows)',
+        'Proxy desabilitado — modo Gestor Desktop (capture via CDP, sem proxy Windows)',
       );
     }
 
     if (this.config.enabled) {
-      this.electronWatcher.start();
+      if (this.config.electronStoreWatchEnabled) {
+        this.electronWatcher.start();
+      } else {
+        this.logger.info('[ELECTRON] Watcher desabilitado — capture via CDP');
+      }
       this.cdpCollector.start();
       this.spoolWatcher.start();
       this.queueWatcher.start();

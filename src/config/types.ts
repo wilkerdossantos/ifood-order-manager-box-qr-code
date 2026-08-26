@@ -45,8 +45,16 @@ export interface ServiceConfig {
   /** Salva txt/bin de cada job para debug (spool/debug/) */
   printDebugEnabled: boolean;
   printDebugDir: string;
-  /** Monitora fila Windows (PORTPROMPT + Print to PDF — sem porta arquivo) */
+  /** Monitora fila Windows (PORTPROMPT + Print to PDF — experimental) */
   printQueueWatchEnabled: boolean;
+  /** Hook de impressão no renderer via CDP (fallback; use print-main-hook.cjs) */
+  cdpPrintHookEnabled: boolean;
+  /** Scan electron-store / arquivos locais (backup; IndexedDB não é confiável) */
+  electronStoreWatchEnabled: boolean;
+  /** Tempo máximo de espera pelo pedido no cache antes de imprimir sem QR (ms) */
+  printCacheWaitMs: number;
+  /** Idade máxima de pedidos no cache (horas); 0 = sem expiração */
+  cacheMaxAgeHours: number;
 }
 
 export const DEFAULT_CONFIG: ServiceConfig = {
@@ -82,7 +90,11 @@ export const DEFAULT_CONFIG: ServiceConfig = {
   spoolDir: '',
   printDebugEnabled: true,
   printDebugDir: '',
-  printQueueWatchEnabled: true,
+  printQueueWatchEnabled: false,
+  cdpPrintHookEnabled: false,
+  electronStoreWatchEnabled: false,
+  printCacheWaitMs: 2000,
+  cacheMaxAgeHours: 24,
 };
 
 export interface PrintMeta {

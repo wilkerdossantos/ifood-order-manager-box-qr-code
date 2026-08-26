@@ -4,6 +4,7 @@ import type { Logger } from '../utils/logger.js';
 import type { ActivityLog } from '../utils/activity-log.js';
 import type { OrderCache } from './order-cache.js';
 import type { InvoiceEnricher } from '../qr/invoice-enricher.js';
+import { IngestDeduper } from './ingest-deduper.js';
 
 interface CdpTarget {
   id: string;
@@ -26,6 +27,14 @@ interface PrintQueueItem {
   at: number;
 }
 
+interface AttachedSession {
+  sessionId: string;
+  targetId: string;
+  url: string;
+}
+
+const GESTOR_URL_RE = /gestordepedidos|ifood\.com/i;
+
 export class CdpCollector {
   private ws: WebSocket | null = null;
   private msgId = 1;
@@ -38,11 +47,13 @@ export class CdpCollector {
   private lastPayloadAt = 0;
   private availableTargets: string[] = [];
   private printQueueProcessing = false;
+  private attachedSessions = new Map<string, AttachedSession>();
+  private deduper = new IngestDeduper();
 
   constructor(
     private config: ServiceConfig,
     private cache: OrderCache,
-    private enricher: InvoiceEnricher,
+    private enricher: InvoiceEnricher | null,
     private logger: Logger,
     private activity: ActivityLog,
   ) {}
@@ -53,6 +64,10 @@ export class CdpCollector {
 
   getAvailableTargets(): string[] {
     return [...this.availableTargets];
+  }
+
+  getAttachedSessionCount(): number {
+    return this.attachedSessions.size;
   }
 
   start(): void {
@@ -69,6 +84,8 @@ export class CdpCollector {
     this.ws?.close();
     this.ws = null;
     this.connected = false;
+    this.attachedSessions.clear();
+    this.deduper.reset();
   }
 
   private scheduleReconnect(delayMs: number): void {
@@ -104,25 +121,25 @@ export class CdpCollector {
     const targets = (await res.json()) as CdpTarget[];
     this.availableTargets = targets.map((t) => `${t.type}: ${t.title} (${t.url.slice(0, 60)})`);
 
+    const browser = targets.find((t) => t.type === 'browser' && t.webSocketDebuggerUrl);
     const page = this.pickTarget(targets);
-    if (!page?.webSocketDebuggerUrl) {
+
+    if (browser?.webSocketDebuggerUrl) {
+      await this.openBrowserWebSocket(browser, page);
+    } else if (page?.webSocketDebuggerUrl) {
+      await this.openPageWebSocket(page);
+    } else {
       throw new Error(
-        `Nenhuma página do Gestor no CDP (${targets.length} targets). URLs: ${targets.map((t) => t.url).join(', ').slice(0, 200)}`,
+        `Nenhum target CDP do Gestor (${targets.length} targets). URLs: ${targets.map((t) => t.url).join(', ').slice(0, 200)}`,
       );
     }
-
-    await this.openWebSocket(page);
-    this.logger.info('[CDP] Conectado ao Gestor de Pedidos', {
-      title: page.title,
-      url: page.url.slice(0, 80),
-    });
   }
 
   private pickTarget(targets: CdpTarget[]): CdpTarget | undefined {
     const withWs = targets.filter((t) => t.webSocketDebuggerUrl && (t.type === 'page' || t.type === 'webview'));
     if (withWs.length === 0) return undefined;
 
-    const gestor = withWs.find((t) => /gestordepedidos|ifood\.com/i.test(t.url));
+    const gestor = withWs.find((t) => GESTOR_URL_RE.test(t.url));
     if (gestor) return gestor;
 
     const httpPage = withWs.find((t) => /^https?:\/\//i.test(t.url));
@@ -131,7 +148,52 @@ export class CdpCollector {
     return withWs[0];
   }
 
-  private openWebSocket(page: CdpTarget): Promise<void> {
+  private isGestorTarget(url: string, type: string): boolean {
+    return (type === 'page' || type === 'webview') && GESTOR_URL_RE.test(url);
+  }
+
+  private openBrowserWebSocket(browser: CdpTarget, primaryPage?: CdpTarget): Promise<void> {
+    return new Promise((resolve, reject) => {
+      const ws = new WebSocket(browser.webSocketDebuggerUrl!);
+      this.ws = ws;
+
+      ws.onopen = async () => {
+        try {
+          this.connected = true;
+          await this.send('Target.setDiscoverTargets', { discover: true });
+          await this.send('Target.setAutoAttach', {
+            autoAttach: true,
+            waitForDebuggerOnStart: false,
+            flatten: true,
+          });
+
+          if (primaryPage) {
+            await this.attachAndSetupTarget(primaryPage.id, primaryPage.url);
+          }
+
+          this.startPayloadPolling();
+
+          if (this.config.cdpPrintHookEnabled && this.enricher) {
+            await this.injectPrintHookOnSession(undefined);
+            this.startPrintPolling();
+          }
+
+          this.logger.info('[CDP] Conectado ao Gestor (multi-target)', {
+            primary: primaryPage?.title || browser.title,
+            printHook: this.config.cdpPrintHookEnabled,
+          });
+          resolve();
+        } catch (err) {
+          this.connected = false;
+          reject(err instanceof Error ? err : new Error(String(err)));
+        }
+      };
+
+      this.setupWebSocketHandlers(ws, reject);
+    });
+  }
+
+  private openPageWebSocket(page: CdpTarget): Promise<void> {
     return new Promise((resolve, reject) => {
       const ws = new WebSocket(page.webSocketDebuggerUrl!);
       this.ws = ws;
@@ -142,10 +204,18 @@ export class CdpCollector {
           await this.send('Network.enable', {});
           await this.send('Runtime.enable', {});
           await this.injectNetworkHooks();
-          await this.injectPrintHook();
           this.startPayloadPolling();
-          this.startPrintPolling();
-          this.logger.info('[CDP] Interceptação ativa — pedidos e impressão serão capturados');
+
+          if (this.config.cdpPrintHookEnabled && this.enricher) {
+            await this.injectPrintHook();
+            this.startPrintPolling();
+          }
+
+          this.logger.info('[CDP] Conectado ao Gestor de Pedidos', {
+            title: page.title,
+            url: page.url.slice(0, 80),
+            printHook: this.config.cdpPrintHookEnabled,
+          });
           resolve();
         } catch (err) {
           this.connected = false;
@@ -153,55 +223,129 @@ export class CdpCollector {
         }
       };
 
-      ws.onmessage = (event) => {
-        try {
-          const msg = JSON.parse(String(event.data)) as {
-            id?: number;
-            result?: unknown;
-            error?: { message: string };
-            method?: string;
-            params?: Record<string, unknown>;
-          };
-
-          if (msg.id && this.pending.has(msg.id)) {
-            const { resolve: res, reject: rej } = this.pending.get(msg.id)!;
-            this.pending.delete(msg.id);
-            if (msg.error) rej(new Error(msg.error.message));
-            else res(msg.result);
-            return;
-          }
-
-          if (msg.method === 'Network.responseReceived') {
-            void this.handleResponseReceived(msg.params || {});
-          }
-        } catch {
-          // ignore malformed
-        }
-      };
-
-      ws.onclose = () => {
-        this.connected = false;
-        this.ws = null;
-        if (this.pollTimer) {
-          clearInterval(this.pollTimer);
-          this.pollTimer = null;
-        }
-        if (this.printPollTimer) {
-          clearInterval(this.printPollTimer);
-          this.printPollTimer = null;
-        }
-        if (this.running) {
-          this.logger.warn('[CDP] Conexão perdida — tentando reconectar...');
-          this.scheduleReconnect(2000);
-        }
-      };
-
-      ws.onerror = () => {
-        if (!this.connected) {
-          reject(new Error('CDP WebSocket error'));
-        }
-      };
+      this.setupWebSocketHandlers(ws, reject);
     });
+  }
+
+  private setupWebSocketHandlers(ws: WebSocket, reject: (err: Error) => void): void {
+    ws.onmessage = (event) => {
+      try {
+        const msg = JSON.parse(String(event.data)) as {
+          id?: number;
+          result?: unknown;
+          error?: { message: string };
+          method?: string;
+          params?: Record<string, unknown>;
+          sessionId?: string;
+        };
+
+        if (msg.id && this.pending.has(msg.id)) {
+          const { resolve: res, reject: rej } = this.pending.get(msg.id)!;
+          this.pending.delete(msg.id);
+          if (msg.error) rej(new Error(msg.error.message));
+          else res(msg.result);
+          return;
+        }
+
+        if (msg.method === 'Target.attachedToTarget') {
+          void this.handleTargetAttached(msg.params || {});
+          return;
+        }
+
+        if (msg.method === 'Target.detachedFromTarget') {
+          const sessionId = msg.params?.sessionId as string | undefined;
+          if (sessionId) this.attachedSessions.delete(sessionId);
+          return;
+        }
+
+        const sessionId = msg.sessionId;
+
+        if (msg.method === 'Network.responseReceived') {
+          void this.handleResponseReceived(msg.params || {}, sessionId);
+        }
+      } catch {
+        // ignore malformed
+      }
+    };
+
+    ws.onclose = () => {
+      this.connected = false;
+      this.ws = null;
+      this.attachedSessions.clear();
+      if (this.pollTimer) {
+        clearInterval(this.pollTimer);
+        this.pollTimer = null;
+      }
+      if (this.printPollTimer) {
+        clearInterval(this.printPollTimer);
+        this.printPollTimer = null;
+      }
+      if (this.running) {
+        this.logger.warn('[CDP] Conexão perdida — tentando reconectar...');
+        this.scheduleReconnect(2000);
+      }
+    };
+
+    ws.onerror = () => {
+      if (!this.connected) {
+        reject(new Error('CDP WebSocket error'));
+      }
+    };
+  }
+
+  private async handleTargetAttached(params: Record<string, unknown>): Promise<void> {
+    const sessionId = params.sessionId as string | undefined;
+    const targetInfo = params.targetInfo as { targetId?: string; url?: string; type?: string } | undefined;
+    if (!sessionId || !targetInfo?.url) return;
+
+    const url = targetInfo.url;
+    const type = targetInfo.type || 'page';
+    if (!this.isGestorTarget(url, type)) return;
+
+    this.attachedSessions.set(sessionId, {
+      sessionId,
+      targetId: targetInfo.targetId || '',
+      url,
+    });
+
+    try {
+      await this.send('Network.enable', {}, sessionId);
+      await this.send('Runtime.enable', {}, sessionId);
+      await this.injectNetworkHooks(sessionId);
+
+      if (this.config.cdpPrintHookEnabled && this.enricher) {
+        await this.injectPrintHookOnSession(sessionId);
+      }
+
+      this.logger.debug('[CDP] Target anexado', { url: url.slice(0, 80), sessionId });
+    } catch (err) {
+      this.logger.debug('[CDP] Falha ao configurar target', {
+        url: url.slice(0, 60),
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+  }
+
+  private async attachAndSetupTarget(targetId: string, url: string): Promise<void> {
+    try {
+      const result = (await this.send('Target.attachToTarget', {
+        targetId,
+        flatten: true,
+      })) as { sessionId?: string };
+
+      if (result?.sessionId) {
+        this.attachedSessions.set(result.sessionId, {
+          sessionId: result.sessionId,
+          targetId,
+          url,
+        });
+        await this.send('Network.enable', {}, result.sessionId);
+        await this.send('Runtime.enable', {}, result.sessionId);
+        await this.injectNetworkHooks(result.sessionId);
+      }
+    } catch {
+      // fallback: autoAttach will pick up targets
+    }
   }
 
   private startPayloadPolling(): void {
@@ -213,31 +357,45 @@ export class CdpCollector {
 
   private async pollInjectedPayload(): Promise<void> {
     if (!this.connected) return;
+
+    const sessions = [...this.attachedSessions.values()];
+    if (sessions.length === 0) {
+      await this.pollSessionPayload(undefined);
+      return;
+    }
+
+    for (const session of sessions) {
+      await this.pollSessionPayload(session.sessionId);
+    }
+  }
+
+  private async pollSessionPayload(sessionId?: string): Promise<void> {
     try {
-      const result = (await this.send('Runtime.evaluate', {
-        expression: 'window.__ifoodQrLastPayload || null',
-        returnByValue: true,
-      })) as { result?: { value?: LastPayload | null } };
+      const result = (await this.send(
+        'Runtime.evaluate',
+        {
+          expression: 'window.__ifoodQrLastPayload || null',
+          returnByValue: true,
+        },
+        sessionId,
+      )) as { result?: { value?: LastPayload | null } };
 
       const payload = result?.result?.value;
       if (!payload?.data || !payload.url) return;
       if (payload.at <= this.lastPayloadAt) return;
 
       this.lastPayloadAt = payload.at;
-      const captured = this.cache.ingestPayload(payload.data);
-      if (captured.length > 0) {
-        this.activity.ordersIngested(captured, 'cdp', payload.url);
-        this.logger.info('[CDP] Pedido capturado via fetch hook', {
-          url: payload.url.length > 100 ? payload.url.slice(0, 100) + '...' : payload.url,
-          count: captured.length,
-        });
-      }
+      this.ingestFromCdp(payload.data, payload.url, 'fetch-hook');
     } catch {
-      // CDP evaluate failed — connection may be lost
+      // session may be gone
     }
   }
 
-  private send(method: string, params: Record<string, unknown>): Promise<unknown> {
+  private send(
+    method: string,
+    params: Record<string, unknown>,
+    sessionId?: string,
+  ): Promise<unknown> {
     return new Promise((resolve, reject) => {
       if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
         reject(new Error('CDP not connected'));
@@ -245,7 +403,9 @@ export class CdpCollector {
       }
       const id = this.msgId++;
       this.pending.set(id, { resolve, reject });
-      this.ws.send(JSON.stringify({ id, method, params }));
+      const message: Record<string, unknown> = { id, method, params };
+      if (sessionId) message.sessionId = sessionId;
+      this.ws.send(JSON.stringify(message));
       setTimeout(() => {
         if (this.pending.has(id)) {
           this.pending.delete(id);
@@ -255,7 +415,7 @@ export class CdpCollector {
     });
   }
 
-  private async injectNetworkHooks(): Promise<void> {
+  private async injectNetworkHooks(sessionId?: string): Promise<void> {
     const pattern = this.config.ingestUrlPattern;
     const script = `
       (function() {
@@ -288,10 +448,6 @@ export class CdpCollector {
         };
         XMLHttpRequest.prototype.send = function(...args) {
           const url = this.__ifoodQrUrl || '';
-          const body = args[0];
-          if (re.test(url) && body) {
-            try { capture(url, JSON.parse(String(body))); } catch(e) {}
-          }
           this.addEventListener('load', function() {
             if (!re.test(this.__ifoodQrUrl || '')) return;
             try { capture(this.__ifoodQrUrl, JSON.parse(this.responseText)); } catch(e) {}
@@ -300,11 +456,12 @@ export class CdpCollector {
         };
       })();
     `;
-    await this.send('Runtime.evaluate', { expression: script });
-    await this.send('Page.addScriptToEvaluateOnNewDocument', { source: script });
+    await this.send('Runtime.evaluate', { expression: script }, sessionId);
+    await this.send('Page.addScriptToEvaluateOnNewDocument', { source: script }, sessionId);
   }
 
   private startPrintPolling(): void {
+    if (!this.config.cdpPrintHookEnabled || !this.enricher) return;
     if (this.printPollTimer) clearInterval(this.printPollTimer);
     this.printPollTimer = setInterval(() => {
       void this.processPrintQueue();
@@ -312,7 +469,7 @@ export class CdpCollector {
   }
 
   private async processPrintQueue(): Promise<void> {
-    if (!this.connected || this.printQueueProcessing) return;
+    if (!this.connected || this.printQueueProcessing || !this.enricher) return;
 
     try {
       const result = (await this.send('Runtime.evaluate', {
@@ -342,11 +499,6 @@ export class CdpCollector {
         this.logger.info('[CDP] QR adicionado à comanda', {
           pedido: detail.order.displayId,
           pdfMode: detail.pdfMode,
-          preview: detail.previewPath || undefined,
-        });
-      } else {
-        this.logger.warn('[CDP] Comanda não modificada — pedido não encontrado no cache', {
-          dica: 'Confirme que o pedido foi capturado antes de imprimir',
         });
       }
 
@@ -369,14 +521,15 @@ export class CdpCollector {
   }
 
   private async injectPrintHook(): Promise<void> {
+    await this.injectPrintHookOnSession(undefined);
+  }
+
+  private async injectPrintHookOnSession(sessionId?: string): Promise<void> {
     const script = `
       (function() {
         if (window.__ifoodQrPrintHooked) return;
         try {
-          if (typeof window.require !== 'function') {
-            window.__ifoodQrPrintHookError = 'window.require indisponível';
-            return;
-          }
+          if (typeof window.require !== 'function') return;
 
           function queuePrint(args) {
             window.__ifoodQrPrintQueue = window.__ifoodQrPrintQueue || [];
@@ -417,45 +570,31 @@ export class CdpCollector {
           ipc.send = wrapIpcSend(ipc, window.__ifoodQrOrigIpcSend);
           ipc.sendSync = wrapChannelMethod(ipc, 'sendSync');
           ipc.invoke = wrapChannelMethod(ipc, 'invoke');
-
           window.__ifoodQrPrintHooked = true;
         } catch (e) {
           window.__ifoodQrPrintHookError = String(e);
         }
       })();
     `;
-    await this.send('Runtime.evaluate', { expression: script });
-    await this.send('Page.addScriptToEvaluateOnNewDocument', { source: script });
-
-    const status = (await this.send('Runtime.evaluate', {
-      expression: `({
-        hooked: !!window.__ifoodQrPrintHooked,
-        error: window.__ifoodQrPrintHookError || null,
-        requireType: typeof window.require
-      })`,
-      returnByValue: true,
-    })) as { result?: { value?: { hooked?: boolean; error?: string | null } } };
-
-    const hooked = status?.result?.value?.hooked;
-    const error = status?.result?.value?.error;
-    if (hooked) {
-      this.logger.info('[CDP] Hook renderer instalado (fallback — use print-main-hook.cjs para impressão)');
-    } else {
-      this.logger.warn('[CDP] Hook renderer falhou — impressão depende de print-main-hook.cjs', {
-        error: error || 'desconhecido',
-        dica: 'Execute .\\scripts\\enable-gestor-debug.ps1 e abra o atalho *.ifood-qr.lnk',
-      });
-    }
+    await this.send('Runtime.evaluate', { expression: script }, sessionId);
+    await this.send('Page.addScriptToEvaluateOnNewDocument', { source: script }, sessionId);
   }
 
-  private async handleResponseReceived(params: Record<string, unknown>): Promise<void> {
+  private async handleResponseReceived(
+    params: Record<string, unknown>,
+    sessionId?: string,
+  ): Promise<void> {
     const response = params.response as { url?: string } | undefined;
     const requestId = params.requestId as string | undefined;
     const url = response?.url || '';
     if (!requestId || !shouldIngestUrl(url, this.config.ingestUrlPattern)) return;
 
     try {
-      const bodyResult = (await this.send('Network.getResponseBody', { requestId })) as {
+      const bodyResult = (await this.send(
+        'Network.getResponseBody',
+        { requestId },
+        sessionId,
+      )) as {
         body?: string;
         base64Encoded?: boolean;
       };
@@ -475,12 +614,14 @@ export class CdpCollector {
 
   private ingestFromCdp(parsed: unknown, url: string, via: string): void {
     const captured = this.cache.ingestPayload(parsed);
-    if (captured.length > 0) {
-      this.activity.ordersIngested(captured, 'cdp', url);
-      this.logger.info(`[CDP] Pedido capturado (${via})`, {
-        url: url.length > 100 ? url.slice(0, 100) + '...' : url,
-        count: captured.length,
-      });
-    }
+    if (captured.length === 0) return;
+    if (!this.deduper.shouldIngest(captured)) return;
+
+    this.activity.ordersIngested(captured, 'cdp', url);
+    this.logger.info(`[CDP] Pedido capturado (${via})`, {
+      url: url.length > 100 ? url.slice(0, 100) + '...' : url,
+      count: captured.length,
+      displayId: captured[0]?.displayId,
+    });
   }
 }

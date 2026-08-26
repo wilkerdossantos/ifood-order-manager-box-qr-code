@@ -1,6 +1,9 @@
 #!/usr/bin/env node
 /**
- * Receptor de impressão para RedMon / port monitor.
+ * @deprecated RedMon não funciona no Windows 11. Use print-main-hook.cjs (Gestor Desktop)
+ * ou named pipe (bridge-server). Mantido apenas para compatibilidade legada.
+ *
+ * Receptor de impressão para port monitor legado.
  *
  * RedMon chama: node print-port-receiver.js <arquivo-spool>
  * Teste manual: Get-Content invoice.txt -Raw | node print-port-receiver.js --stdin

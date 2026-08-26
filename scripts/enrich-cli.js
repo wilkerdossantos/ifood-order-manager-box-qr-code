@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /**
+ * @deprecated Use enrich-cli.cjs (CommonJS). Mantido para compatibilidade.
  * CLI síncrona: lê JSON do stdin, chama /print/enrich, escreve JSON no stdout.
- * Usada pelo print-main-hook.cjs no processo principal do Electron.
  */
 import http from 'node:http';
 

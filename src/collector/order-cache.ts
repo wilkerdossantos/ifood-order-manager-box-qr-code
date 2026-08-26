@@ -14,7 +14,7 @@ import {
   UUID,
 } from '../utils/strings.js';
 
-type OrderRecord = OrderData;
+type OrderRecord = OrderData & { capturedAt?: string };
 
 interface PersistedCache {
   orders: OrderRecord[];
@@ -22,14 +22,26 @@ interface PersistedCache {
   updatedAt: string;
 }
 
+export interface OrderCacheOptions {
+  cacheMaxAgeHours?: number;
+  printCacheWaitMs?: number;
+  onPersistError?: (error: unknown) => void;
+}
+
 export class OrderCache {
   private orderCache = new Map<string, OrderRecord>();
   private merchantRegistry = new Map<string, string>();
   private cachePath: string;
   private persistTimer: ReturnType<typeof setTimeout> | null = null;
+  private cacheMaxAgeHours: number;
+  private printCacheWaitMs: number;
+  private onPersistError?: (error: unknown) => void;
 
-  constructor(cachePath: string) {
+  constructor(cachePath: string, options: OrderCacheOptions = {}) {
     this.cachePath = cachePath;
+    this.cacheMaxAgeHours = options.cacheMaxAgeHours ?? 24;
+    this.printCacheWaitMs = options.printCacheWaitMs ?? 2000;
+    this.onPersistError = options.onPersistError;
     this.loadFromDisk();
   }
 
@@ -150,8 +162,9 @@ export class OrderCache {
   async resolveOrderForPrint(
     invoice: string,
     printMeta: PrintMeta = {},
-    waitMs = 300,
+    waitMs?: number,
   ): Promise<OrderRecord | null> {
+    const effectiveWait = waitMs ?? this.printCacheWaitMs;
     if (printMeta && '_parsed' in printMeta) {
       this.ingestPrintPackage(printMeta._parsed as Record<string, unknown>);
     }
@@ -176,7 +189,7 @@ export class OrderCache {
 
     if (!data.merchantId) {
       const displayId = data.displayId || extractDisplayIdFromInvoice(invoice);
-      const deadline = Date.now() + waitMs;
+      const deadline = Date.now() + effectiveWait;
       while (!data.merchantId && Date.now() < deadline) {
         await new Promise((r) => setTimeout(r, 40));
         this.consolidateCache();
@@ -338,10 +351,11 @@ export class OrderCache {
       orderType: incoming.orderType !== 'NÃO INFORMADO' ? incoming.orderType : existing.orderType,
       orderId: incoming.orderId || existing.orderId,
       displayId: incoming.displayId || existing.displayId,
+      capturedAt: existing.capturedAt || incoming.capturedAt,
     };
   }
 
-  private rememberOrder(data: Partial<OrderRecord>): void {
+  private rememberOrder(data: Partial<OrderRecord>, options: { skipPersist?: boolean } = {}): void {
     if (!data?.displayId && !data?.orderId) return;
 
     const canonical: OrderRecord = {
@@ -350,11 +364,15 @@ export class OrderCache {
       pickupCode: data.pickupCode || '',
       orderType: data.orderType || 'NÃO INFORMADO',
       orderId: data.orderId || '',
+      capturedAt: data.capturedAt || new Date().toISOString(),
     };
 
     const save = (key: string, value: OrderRecord) => {
       if (!key) return;
-      this.orderCache.set(key, this.mergeOrder(this.orderCache.get(key), value));
+      const existing = this.orderCache.get(key);
+      const merged = this.mergeOrder(existing, value);
+      if (!merged.capturedAt) merged.capturedAt = canonical.capturedAt;
+      this.orderCache.set(key, merged);
     };
 
     for (const alias of displayAliases(canonical.displayId)) save(alias, canonical);
@@ -364,23 +382,51 @@ export class OrderCache {
         for (const alias of displayAliases(canonical.orderId)) save(alias, canonical);
       }
     }
+
+    if (!options.skipPersist) {
+      this.schedulePersist();
+    }
   }
 
   private consolidateCache(): void {
-    const orders = this.uniqueOrdersList();
-    for (let i = 0; i < orders.length; i++) {
-      for (let j = i + 1; j < orders.length; j++) {
-        const a = orders[i];
-        const b = orders[j];
-        const sameOrder =
-          (a.orderId && b.orderId && a.orderId === b.orderId) ||
-          (a.displayId &&
-            b.displayId &&
-            displayAliases(a.displayId).some((x) => displayAliases(b.displayId).includes(x)));
-        if (!sameOrder) continue;
-        const merged = this.mergeOrder(a, b);
-        this.rememberOrder(merged);
+    const byOrderId = new Map<string, OrderRecord>();
+    const byDisplayId = new Map<string, OrderRecord>();
+
+    for (const order of this.orderCache.values()) {
+      if (order.orderId) {
+        const existing = byOrderId.get(order.orderId);
+        byOrderId.set(order.orderId, existing ? this.mergeOrder(existing, order) : order);
       }
+      if (order.displayId) {
+        for (const alias of displayAliases(order.displayId)) {
+          const existing = byDisplayId.get(alias);
+          byDisplayId.set(alias, existing ? this.mergeOrder(existing, order) : order);
+        }
+      }
+    }
+
+    const mergedGroups = new Map<string, OrderRecord>();
+    for (const order of byOrderId.values()) {
+      const key = `${order.orderId}|${order.displayId}`;
+      mergedGroups.set(key, order);
+    }
+    for (const order of byDisplayId.values()) {
+      const match = [...mergedGroups.values()].find(
+        (o) =>
+          (o.orderId && o.orderId === order.orderId) ||
+          (o.displayId &&
+            order.displayId &&
+            displayAliases(o.displayId).some((a) => displayAliases(order.displayId).includes(a))),
+      );
+      if (match) {
+        mergedGroups.set(`${match.orderId}|${match.displayId}`, this.mergeOrder(match, order));
+      } else {
+        mergedGroups.set(`${order.orderId}|${order.displayId}`, order);
+      }
+    }
+
+    for (const merged of mergedGroups.values()) {
+      this.rememberOrder(merged, { skipPersist: true });
     }
   }
 
@@ -447,16 +493,34 @@ export class OrderCache {
 
   private persistToDisk(): void {
     try {
+      const orders = this.purgeExpiredOrders(this.uniqueOrdersList());
       const data: PersistedCache = {
-        orders: this.uniqueOrdersList(),
+        orders,
         merchants: Object.fromEntries(this.merchantRegistry),
         updatedAt: new Date().toISOString(),
       };
       fs.mkdirSync(path.dirname(this.cachePath), { recursive: true });
       fs.writeFileSync(this.cachePath, JSON.stringify(data, null, 2), 'utf-8');
-    } catch {
-      // ignore write errors
+    } catch (err) {
+      if (this.onPersistError) {
+        this.onPersistError(err);
+      } else {
+        console.warn('[OrderCache] Falha ao persistir cache:', err);
+      }
     }
+  }
+
+  private purgeExpiredOrders(orders: OrderRecord[]): OrderRecord[] {
+    if (!this.cacheMaxAgeHours || this.cacheMaxAgeHours <= 0) return orders;
+
+    const maxAgeMs = this.cacheMaxAgeHours * 60 * 60 * 1000;
+    const cutoff = Date.now() - maxAgeMs;
+
+    return orders.filter((order) => {
+      if (!order.capturedAt) return true;
+      const at = Date.parse(order.capturedAt);
+      return Number.isNaN(at) || at >= cutoff;
+    });
   }
 
   private loadFromDisk(): void {

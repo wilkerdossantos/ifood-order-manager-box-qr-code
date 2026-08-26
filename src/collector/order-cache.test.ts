@@ -67,4 +67,24 @@ describe('OrderCache', () => {
     const found = cache2.getOrder('6798');
     expect(found?.displayId).toBe('6798');
   });
+
+  it('purges expired orders on persist when TTL configured', () => {
+    const staleFile = path.join(os.tmpdir(), `qr-cache-ttl-${Date.now()}.json`);
+    const staleCache = new OrderCache(staleFile, { cacheMaxAgeHours: 1 });
+    staleCache.ingestPayload(pollingFixture);
+    staleCache.flush();
+
+    const data = JSON.parse(fs.readFileSync(staleFile, 'utf-8')) as {
+      orders: Array<{ capturedAt?: string }>;
+    };
+    data.orders[0].capturedAt = new Date(Date.now() - 48 * 60 * 60 * 1000).toISOString();
+    fs.writeFileSync(staleFile, JSON.stringify(data));
+
+    const reloaded = new OrderCache(staleFile, { cacheMaxAgeHours: 1 });
+    reloaded.flush();
+    const after = JSON.parse(fs.readFileSync(staleFile, 'utf-8')) as { orders: unknown[] };
+    expect(after.orders.length).toBe(0);
+
+    if (fs.existsSync(staleFile)) fs.unlinkSync(staleFile);
+  });
 });
