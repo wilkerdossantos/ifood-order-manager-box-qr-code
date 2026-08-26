@@ -1,32 +1,36 @@
 # Print Bridge — Impressora Virtual (Windows 11, sem RedMon)
 
-RedMon [nao suporta Windows 10/11](https://www.ghostgum.com.au/software/redmon.htm). Usamos **porta local -> arquivo** + **SpoolWatcher** no servico.
+RedMon [nao suporta Windows 10/11](https://www.ghostgum.com.au/software/redmon.htm).
 
-## Fluxo
+## Modo A — PORTPROMPT + Microsoft Print to PDF (Windows 11)
+
+Quando Generic/Text nao esta disponivel, use esta configuracao:
 
 ```
 Gestor Desktop
-    |  imprime em "iFood QR Bridge"
+    |  imprime em "iFood QR Bridge" (PORTPROMPT + PDF driver)
     v
-Porta local: C:\ProgramData\iFoodQrService\spool\output.prn
-    |  chokidar detecta alteracao
+Fila Windows (SPL/SHD em spool\PRINTERS)
+    |  PrintQueueWatcher detecta job
     v
-SpoolWatcher (servico Node)
-    |  enrichInvoice + forward RAW
+capture-print-job.ps1 (captura bytes, cancela job na Bridge)
+    |  enrichInvoice + debug txt
     v
-Impressora destino (ex: Microsoft Print to PDF, EPSON TM-T20)
+targetPrinterName (TEXT se PDF, RAW se termica)
 ```
 
-## Instalacao
-
 ```powershell
-# Admin
-npm run install:virtual-printer -- -TargetPrinter "Microsoft Print to PDF"
-
+# Admin obrigatorio (leitura de C:\Windows\System32\spool\PRINTERS)
+npm run install:virtual-printer -- -TargetPrinter "Microsoft Print to PDF" -UsePortPrompt
 npm run dev
 ```
 
-No Gestor: **Configuracoes -> Impressora -> iFood QR Bridge**
+## Modo B — Porta arquivo (Generic / Text Only)
+
+```
+Porta local: C:\ProgramData\iFoodQrService\spool\output.prn
+    -> SpoolWatcher
+```
 
 ## Config (`config.json`)
 
@@ -34,7 +38,9 @@ No Gestor: **Configuracoes -> Impressora -> iFood QR Bridge**
 {
   "printerName": "iFood QR Bridge",
   "targetPrinterName": "Microsoft Print to PDF",
+  "printQueueWatchEnabled": true,
   "spoolWatchEnabled": true,
+  "printDebugEnabled": true,
   "spoolDir": "C:\\ProgramData\\iFoodQrService\\spool"
 }
 ```
@@ -42,20 +48,28 @@ No Gestor: **Configuracoes -> Impressora -> iFood QR Bridge**
 ## Verificar
 
 ```powershell
-# Diagnostico
 curl http://127.0.0.1:7420/diagnostics
-
-# Deve mostrar spool.enabled=true, jobsProcessed incrementando apos imprimir
+# queue.enabled=true, queue.jobsProcessed incrementa apos imprimir
+curl http://127.0.0.1:7420/print/debug
 ```
 
 ## Troubleshooting
 
 | Sintoma | Solucao |
 |---------|---------|
-| `[SPOOL]` nao aparece | `npm run dev` rodando? Gestor usa "iFood QR Bridge"? |
-| QR nao adicionado | Pedido capturado via CDP antes de imprimir? |
-| Driver Generic nao existe | Rodar install script como Admin; ou instalar driver manualmente |
-| PDF ilegivel | `targetPrinterName` deve conter "PDF" para modo texto |
+| `[QUEUE]` nao aparece | `npm run dev` como **Admin**? Gestor usa "iFood QR Bridge"? |
+| `SPL nao encontrado` | Executar servico como Administrador |
+| QR nao adicionado | Pedido capturado via CDP antes de imprimir? Veja `*-meta.json` |
+| PDF ilegivel / binario | `targetPrinterName` deve conter "PDF" — envia TEXT, nao ESC/POS |
+| Dialogo PORTPROMPT aparece | Job nao foi cancelado — confirme Admin + `[QUEUE]` nos logs |
+
+## Debug
+
+Arquivos em `C:\ProgramData\iFoodQrService\spool\debug\`:
+
+- `*-readable.txt` — comanda legivel
+- `*-enriched.txt` — com QR (texto se PDF)
+- `*-meta.json` — modified, payload, cache
 
 ## Captura de pedidos
 

@@ -110,26 +110,43 @@ Arquivo: `%ProgramData%\iFoodQrService\config.json`
 
 ## Impressora virtual (Windows 11, sem RedMon)
 
-Impressora **iFood QR Bridge** + servico monitorando arquivo spool (substituto do RedMon).
+Dois modos de interceptacao:
+
+| Modo | Porta / Driver | Como intercepta |
+|------|----------------|-----------------|
+| **Arquivo** (ideal) | Local `output.prn` + Generic/Text | SpoolWatcher monitora arquivo |
+| **PORTPROMPT + PDF** (Windows 11) | PORTPROMPT + Microsoft Print to PDF | **QueueWatcher** monitora fila Windows |
 
 ```
-Gestor -> "iFood QR Bridge" -> output.prn -> [SPOOL] watcher -> impressora destino
+Gestor -> "iFood QR Bridge" -> [QUEUE] captura SPL -> enriquece -> impressora destino
 ```
 
 ```powershell
-# PowerShell Admin
-npm run install:virtual-printer -- -TargetPrinter "Microsoft Print to PDF"
+# PowerShell Admin (obrigatorio para ler spool do Windows)
+npm run install:virtual-printer -- -TargetPrinter "Microsoft Print to PDF" -UsePortPrompt
 npm run dev
 
 # Gestor -> Impressora -> "iFood QR Bridge"
 ```
 
+Se voce ja criou a impressora manualmente (PORTPROMPT + PDF), basta garantir no config:
+
+```json
+{
+  "printQueueWatchEnabled": true,
+  "targetPrinterName": "Microsoft Print to PDF"
+}
+```
+
 Log ao imprimir:
 
 ```
-[SPOOL] Job de impressao detectado
+[QUEUE] Job de impressao detectado
 [PRINT DEBUG] Dump salvo
+[PRINT] Comanda encaminhada (TEXT)
 ```
+
+**Importante:** com destino PDF, o QR vai como **texto legivel** (nao ESC/POS binario) — PDF abre normalmente.
 
 **Modo debug** — arquivos em `C:\ProgramData\iFoodQrService\spool\debug\`:
 

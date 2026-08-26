@@ -11,7 +11,8 @@
 param(
     [string]$TargetPrinter = "",
     [string]$VirtualPrinterName = "iFood QR Bridge",
-    [string]$DriverName = ""
+    [string]$DriverName = "",
+    [switch]$UsePortPrompt
 )
 
 $ErrorActionPreference = "Continue"
@@ -152,28 +153,40 @@ function New-VirtualPrinter {
     param(
         [string]$Name,
         [string]$PortName,
-        [string]$ForceDriver = ""
+        [string]$ForceDriver = "",
+        [switch]$PortPrompt
     )
 
     $driver = $ForceDriver
     if (-not $driver) {
-        $driver = Get-GenericTextDriverName
+        if ($PortPrompt) {
+            $driver = "Microsoft Print To PDF"
+            if (-not (Get-PrinterDriver -Name $driver -ErrorAction SilentlyContinue)) {
+                $driver = "Microsoft Print to PDF"
+            }
+        } else {
+            $driver = Get-GenericTextDriverName
+        }
     }
-    if (-not $driver) {
+    if (-not $driver -and -not $PortPrompt) {
         Write-Host "Instalando driver Generic/Text..." -ForegroundColor Yellow
         $driver = Install-GenericTextDriver
     }
     if (-not $driver) {
-        Write-Host "ERRO: driver Generic/Text nao encontrado." -ForegroundColor Red
+        Write-Host "ERRO: driver nao encontrado." -ForegroundColor Red
         Write-Host "Drivers no sistema:" -ForegroundColor Yellow
         Get-PrinterDriver -ErrorAction SilentlyContinue | ForEach-Object { Write-Host "  - $($_.Name)" }
-        Show-ManualDriverHelp
+        if (-not $PortPrompt) { Show-ManualDriverHelp }
         return $false
     }
 
     Write-Host "Driver: $driver" -ForegroundColor Green
 
-    if (-not (Get-PrinterPort -Name $PortName -ErrorAction SilentlyContinue)) {
+    if ($PortPrompt) {
+        $PortName = "PORTPROMPT:"
+    }
+
+    if ($PortName -ne "PORTPROMPT:" -and -not (Get-PrinterPort -Name $PortName -ErrorAction SilentlyContinue)) {
         try {
             Add-PrinterPort -Name $PortName -ErrorAction Stop
             Write-Host "Porta criada: $PortName" -ForegroundColor Gray
@@ -220,6 +233,7 @@ $config | Add-Member -NotePropertyName spoolWatchEnabled -NotePropertyValue $tru
 $config | Add-Member -NotePropertyName spoolDir -NotePropertyValue $SpoolDir -Force
 $config | Add-Member -NotePropertyName printDebugEnabled -NotePropertyValue $true -Force
 $config | Add-Member -NotePropertyName printDebugDir -NotePropertyValue (Join-Path $SpoolDir "debug") -Force
+$config | Add-Member -NotePropertyName printQueueWatchEnabled -NotePropertyValue $true -Force
 if ($TargetPrinter) {
     $config | Add-Member -NotePropertyName targetPrinterName -NotePropertyValue $TargetPrinter -Force
 }
@@ -237,11 +251,24 @@ $printerOk = $false
 
 if ($existing) {
     Write-Host "Impressora '$VirtualPrinterName' ja existe." -ForegroundColor Green
+    $port = (Get-Printer -Name $VirtualPrinterName).PortName
+    $drv = (Get-Printer -Name $VirtualPrinterName).DriverName
+    Write-Host "  Porta: $port | Driver: $drv" -ForegroundColor Gray
+    if ($port -like "PORTPROMPT*") {
+        Write-Host "  Modo PORTPROMPT detectado — fila Windows sera monitorada pelo servico." -ForegroundColor Cyan
+    }
     $printerOk = $true
 } else {
-    $printerOk = New-VirtualPrinter -Name $VirtualPrinterName -PortName $SpoolFile -ForceDriver $DriverName
-    if ($printerOk) {
-        Write-Host "Impressora OK: $VirtualPrinterName -> $SpoolFile" -ForegroundColor Green
+    if ($UsePortPrompt -or $DriverName -match "PDF") {
+        $printerOk = New-VirtualPrinter -Name $VirtualPrinterName -PortName "PORTPROMPT:" -ForceDriver $DriverName -PortPrompt
+        if ($printerOk) {
+            Write-Host "Impressora OK: $VirtualPrinterName (PORTPROMPT + PDF)" -ForegroundColor Green
+        }
+    } else {
+        $printerOk = New-VirtualPrinter -Name $VirtualPrinterName -PortName $SpoolFile -ForceDriver $DriverName
+        if ($printerOk) {
+            Write-Host "Impressora OK: $VirtualPrinterName -> $SpoolFile" -ForegroundColor Green
+        }
     }
 }
 
@@ -250,10 +277,11 @@ Write-Host "PROXIMOS PASSOS:" -ForegroundColor Cyan
 if (-not $printerOk) {
     Write-Host "  [!] Instale o driver manualmente (instrucoes acima) e rode o script de novo." -ForegroundColor Red
 } else {
-    Write-Host "  1. npm run dev"
+    Write-Host "  1. PowerShell Admin: npm run dev"
     Write-Host "  2. Gestor -> Impressora -> '$VirtualPrinterName'"
+    Write-Host "  3. Debug: C:\ProgramData\iFoodQrService\spool\debug\"
     if ($TargetPrinter) {
-        Write-Host "  3. Destino final: $TargetPrinter"
+        Write-Host "  4. Destino final: $TargetPrinter (TEXT legivel se for PDF)"
     }
 }
 Write-Host ""

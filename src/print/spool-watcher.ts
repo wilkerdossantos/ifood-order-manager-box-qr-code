@@ -5,12 +5,7 @@ import chokidar, { type FSWatcher } from 'chokidar';
 
 import type { ServiceConfig } from '../config/types.js';
 import type { Logger } from '../utils/logger.js';
-import type { ActivityLog } from '../utils/activity-log.js';
-import type { InvoiceEnricher } from '../qr/invoice-enricher.js';
-import type { OrderCache } from '../collector/order-cache.js';
-import { stripEscPosToText } from '../qr/escpos.js';
-import { extractDisplayIdFromInvoice } from '../utils/strings.js';
-import { forwardRawToPrinter } from './raw-forwarder.js';
+import type { PrintJobHandler } from './print-job-handler.js';
 import type { PrintDebugWriter } from './print-debug-writer.js';
 
 export interface SpoolWatcherDiagnostics {
@@ -37,11 +32,9 @@ export class SpoolWatcher {
 
   constructor(
     private config: ServiceConfig,
-    private cache: OrderCache,
-    private enricher: InvoiceEnricher,
+    private handler: PrintJobHandler,
     private debugWriter: PrintDebugWriter,
     private logger: Logger,
-    private activity: ActivityLog,
   ) {}
 
   getSpoolFile(): string {
@@ -99,7 +92,6 @@ export class SpoolWatcher {
       this.logger.debug('[SPOOL] watcher error', { error: msg });
     });
 
-    // Fallback: poll a cada 2s (chokidar as vezes nao dispara no Windows)
     this.pollTimer = setInterval(() => {
       try {
         const stat = fs.statSync(spoolFile);
@@ -112,12 +104,13 @@ export class SpoolWatcher {
       }
     }, 2000);
 
-    this.logger.info('[SPOOL] Watcher ativo', {
+    this.logger.info('[SPOOL] Watcher de arquivo ativo', {
       spoolFile,
       debugDir: this.debugWriter.getDebugDir(),
       targetPrinter: this.config.targetPrinterName || '(nao configurado)',
       virtualPrinter: this.config.printerName,
       printDebug: this.config.printDebugEnabled,
+      note: 'Use printQueueWatchEnabled se a impressora usa PORTPROMPT/PDF',
     });
   }
 
@@ -146,72 +139,17 @@ export class SpoolWatcher {
       if (stat.size === 0) return;
 
       this.lastProcessedSize = stat.size;
+      const invoice = this.handler.readInvoiceFromFile(filePath);
 
-      const raw = fs.readFileSync(filePath);
-      const invoice = Buffer.from(raw).toString('latin1');
-      const readable = stripEscPosToText(invoice);
-      const displayId = extractDisplayIdFromInvoice(readable) || extractDisplayIdFromInvoice(invoice);
-
-      this.logger.info('[SPOOL] Job de impressao detectado', {
-        file: filePath,
-        bytes: stat.size,
-        displayId: displayId || 'N/A',
-        cacheOrders: this.cache.getStats().uniqueOrders,
-      });
-
-      const target = this.config.targetPrinterName;
-      const detail = await this.enricher.enrichInvoiceDetailed(invoice, {
-        printerName: target || this.config.printerName,
-        savePreview: true,
-      });
-
-      const debugEntry = this.debugWriter.saveJob('spool', invoice, detail, {
-        displayIdFromReadable: displayId,
-        readableLength: readable.length,
-        cacheStats: this.cache.getStats(),
-        targetPrinter: target,
-      });
-
-      if (debugEntry) {
-        this.lastDebugFiles = {
-          readable: debugEntry.readablePath,
-          enriched: debugEntry.enrichedPath,
-          raw: debugEntry.rawPath,
-          meta: debugEntry.metaPath,
-        };
-      }
-
-      if (detail.modified && detail.order) {
-        this.activity.printEnriched(detail.order.displayId, detail.payload || '');
-        this.logger.info('[SPOOL] QR adicionado a comanda', {
-          pedido: detail.order.displayId,
-          pdfMode: detail.pdfMode,
-          debug: debugEntry?.readablePath,
-        });
-      } else {
-        this.logger.warn('[SPOOL] Comanda NAO modificada', {
-          displayIdExtraido: displayId || 'N/A',
-          pedidosNoCache: this.cache.getStats().uniqueOrders,
-          dica: 'Veja o txt em print-debug. Confirme CDP capturando pedidos.',
-          debug: debugEntry?.readablePath,
-        });
-      }
-
-      if (target) {
-        const ok = forwardRawToPrinter(detail.invoice, target, this.logger);
-        if (!ok) {
-          this.lastError = `Falha ao encaminhar para ${target}`;
-        }
-      } else {
-        this.lastError = 'targetPrinterName nao configurado';
-        this.logger.warn('[SPOOL] Configure targetPrinterName em config.json');
+      const handled = await this.handler.handleRawInvoice(invoice, 'spool', { file: filePath });
+      if (handled.debugFiles) {
+        this.lastDebugFiles = handled.debugFiles;
       }
 
       this.jobsProcessed += 1;
       this.lastJobAt = new Date().toISOString();
-      if (target && !this.lastError) {
-        this.lastError = null;
-      }
+      this.lastError =
+        handled.forwarded || !this.config.targetPrinterName ? null : 'Falha ao encaminhar';
 
       try {
         fs.truncateSync(filePath, 0);

@@ -8,6 +8,8 @@ import { loadConfig, getDataDir } from '../config/index.js';
 import { PrintBridgeServer } from '../print/bridge-server.js';
 import { PrintPreviewWriter } from '../print/preview-writer.js';
 import { PrintDebugWriter } from '../print/print-debug-writer.js';
+import { PrintJobHandler } from '../print/print-job-handler.js';
+import { PrintQueueWatcher } from '../print/queue-watcher.js';
 import { SpoolWatcher } from '../print/spool-watcher.js';
 import { InvoiceEnricher } from '../qr/invoice-enricher.js';
 import { ActivityLog } from '../utils/activity-log.js';
@@ -49,7 +51,7 @@ export class QrService {
     this.logger,
     this.activity,
   );
-  private spoolWatcher = new SpoolWatcher(
+  private printJobHandler = new PrintJobHandler(
     this.config,
     this.cache,
     this.enricher,
@@ -57,6 +59,13 @@ export class QrService {
     this.logger,
     this.activity,
   );
+  private spoolWatcher = new SpoolWatcher(
+    this.config,
+    this.printJobHandler,
+    this.debugWriter,
+    this.logger,
+  );
+  private queueWatcher = new PrintQueueWatcher(this.config, this.printJobHandler, this.logger);
   private httpApi = new HttpApi({
     config: this.config,
     cache: this.cache,
@@ -73,6 +82,7 @@ export class QrService {
       printPreviewDir: this.previewWriter.getPreviewDir(),
       printDebugDir: this.debugWriter.getDebugDir(),
       spool: this.spoolWatcher.getDiagnostics(),
+      queue: this.queueWatcher.getDiagnostics(),
     }),
   });
   private statusReporter = createStatusReporter(
@@ -118,6 +128,7 @@ export class QrService {
       this.electronWatcher.start();
       this.cdpCollector.start();
       this.spoolWatcher.start();
+      this.queueWatcher.start();
     }
 
     this.activity.startupBanner({
@@ -146,6 +157,7 @@ export class QrService {
     this.cache.flush();
     await this.electronWatcher.stop();
     this.cdpCollector.stop();
+    this.queueWatcher.stop();
     await this.spoolWatcher.stop();
     await this.proxy.stop();
     await this.printBridge.stop();

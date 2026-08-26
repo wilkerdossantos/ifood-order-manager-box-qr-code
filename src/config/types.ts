@@ -45,6 +45,8 @@ export interface ServiceConfig {
   /** Salva txt/bin de cada job para debug (spool/debug/) */
   printDebugEnabled: boolean;
   printDebugDir: string;
+  /** Monitora fila Windows (PORTPROMPT + Print to PDF — sem porta arquivo) */
+  printQueueWatchEnabled: boolean;
 }
 
 export const DEFAULT_CONFIG: ServiceConfig = {
@@ -80,6 +82,7 @@ export const DEFAULT_CONFIG: ServiceConfig = {
   spoolDir: '',
   printDebugEnabled: true,
   printDebugDir: '',
+  printQueueWatchEnabled: true,
 };
 
 export interface PrintMeta {
