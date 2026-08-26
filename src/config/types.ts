@@ -30,6 +30,12 @@ export interface ServiceConfig {
   electronAppDataPaths: string[];
   ingestUrlPattern: string;
   proxyHosts: string[];
+  /** Scan electron-store a cada N segundos */
+  scanIntervalSeconds: number;
+  /** Captura via Chrome DevTools Protocol (porta debug do Electron) */
+  cdpEnabled: boolean;
+  cdpPort: number;
+  cdpReconnectSeconds: number;
 }
 
 export const DEFAULT_CONFIG: ServiceConfig = {
@@ -55,6 +61,10 @@ export const DEFAULT_CONFIG: ServiceConfig = {
     'api.ifood.com.br',
     'merchant-api.ifood.com.br',
   ],
+  scanIntervalSeconds: 5,
+  cdpEnabled: true,
+  cdpPort: 9222,
+  cdpReconnectSeconds: 8,
 };
 
 export interface PrintMeta {

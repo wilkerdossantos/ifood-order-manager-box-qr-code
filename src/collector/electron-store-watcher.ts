@@ -1,4 +1,5 @@
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 
 import chokidar, { type FSWatcher } from 'chokidar';
@@ -7,17 +8,12 @@ import type { ServiceConfig } from '../config/types.js';
 import type { Logger } from '../utils/logger.js';
 import type { ActivityLog } from '../utils/activity-log.js';
 import type { OrderCache } from './order-cache.js';
+import {
+  discoverElectronAppDataPaths,
+  extractJsonObjectsFromBuffer,
+  parseElectronStoreContent,
+} from './storage-parser.js';
 
-const ORDER_KEY_PATTERNS = [
-  /order/i,
-  /displayId/i,
-  /pickupCode/i,
-  /merchantId/i,
-  /events/i,
-  /polling/i,
-];
-
-/** Chromium/Electron dirs that are locked while the app runs — never watch these. */
 const IGNORED_DIR_NAMES = new Set([
   'Network',
   'GPUCache',
@@ -43,7 +39,6 @@ const IGNORED_DIR_NAMES = new Set([
   'optimization_guide_hint_cache_store',
 ]);
 
-/** Individual files that Chromium locks (EBUSY on Windows). */
 const IGNORED_FILE_NAMES = new Set([
   'Cookies',
   'Cookies-journal',
@@ -52,19 +47,34 @@ const IGNORED_FILE_NAMES = new Set([
   'Trust Tokens',
   'Trust Tokens-journal',
   'LOCK',
-  'LOG',
-  'LOG.old',
   'CURRENT',
   'MANIFEST-000001',
-  '000003.log',
 ]);
 
 const IGNORED_PATH_PATTERN =
   /[/\\](Network|GPUCache|Code Cache|Cache|Session Storage|Service Worker|blob_storage)([/\\]|$)/i;
 
+const SCAN_FILE_EXTENSIONS = new Set(['.json', '.log', '.ldb', '.sst']);
+
+export interface ScanDiagnostics {
+  appDataPaths: string[];
+  filesScanned: number;
+  jsonBlobsFound: number;
+  ordersCaptured: number;
+  sampleFiles: string[];
+}
+
 export class ElectronStoreWatcher {
   private watcher: FSWatcher | null = null;
+  private scanTimer: ReturnType<typeof setInterval> | null = null;
   private lastWatchTargets: string[] = [];
+  private lastDiagnostics: ScanDiagnostics = {
+    appDataPaths: [],
+    filesScanned: 0,
+    jsonBlobsFound: 0,
+    ordersCaptured: 0,
+    sampleFiles: [],
+  };
 
   constructor(
     private config: ServiceConfig,
@@ -77,60 +87,140 @@ export class ElectronStoreWatcher {
     return [...this.lastWatchTargets];
   }
 
+  getDiagnostics(): ScanDiagnostics {
+    return { ...this.lastDiagnostics };
+  }
+
   start(): void {
-    const existingPaths = this.config.electronAppDataPaths.filter((p) => fs.existsSync(p));
+    const appData = process.env.APPDATA || path.join(os.homedir(), 'AppData', 'Roaming');
+    const discovered = discoverElectronAppDataPaths(appData);
+    const configured = this.config.electronAppDataPaths.filter((p) => fs.existsSync(p));
+    const existingPaths = [...new Set([...configured, ...discovered])];
+
+    this.lastDiagnostics.appDataPaths = existingPaths;
+
     if (existingPaths.length === 0) {
-      this.logger.warn('No Electron app data paths found', {
-        paths: this.config.electronAppDataPaths,
+      this.logger.warn('[ELECTRON] Nenhuma pasta do Gestor encontrada', {
+        appData,
+        dica: 'Abra o Gestor de Pedidos Desktop pelo menos uma vez',
       });
       return;
     }
+
+    this.logger.info('[ELECTRON] Pastas encontradas', { paths: existingPaths });
 
     const watchTargets: string[] = [];
     for (const basePath of existingPaths) {
-      this.scanDirectory(basePath);
       watchTargets.push(...this.collectWatchTargets(basePath));
     }
-
-    if (watchTargets.length === 0) {
-      this.logger.warn('No watchable Electron store targets found', { paths: existingPaths });
-      this.lastWatchTargets = [];
-      return;
-    }
-
     this.lastWatchTargets = watchTargets;
 
-    this.watcher = chokidar.watch(watchTargets, {
-      ignored: (watchPath) => this.shouldIgnorePath(watchPath),
-      persistent: true,
-      ignoreInitial: true,
-      ignorePermissionErrors: true,
-      awaitWriteFinish: { stabilityThreshold: 500, pollInterval: 100 },
-      depth: 4,
+    const captured = this.runFullScan(existingPaths);
+    this.logger.info('[ELECTRON] Scan inicial concluído', {
+      arquivos: this.lastDiagnostics.filesScanned,
+      jsonEncontrados: this.lastDiagnostics.jsonBlobsFound,
+      pedidosCapturados: captured,
     });
 
-    this.watcher.on('add', (filePath: string) => this.handleFileChange(filePath));
-    this.watcher.on('change', (filePath: string) => this.handleFileChange(filePath));
-    this.watcher.on('error', (error: unknown) => {
-      const err = error instanceof Error ? error : new Error(String(error));
-      // Locked Chromium files (e.g. Network/Cookies) must not crash the service.
-      this.logger.debug('Electron store watcher error (ignored)', {
-        error: err.message,
-        code: (err as NodeJS.ErrnoException).code,
+    if (watchTargets.length > 0) {
+      this.watcher = chokidar.watch(watchTargets, {
+        ignored: (watchPath) => this.shouldIgnorePath(watchPath),
+        persistent: true,
+        ignoreInitial: true,
+        ignorePermissionErrors: true,
+        awaitWriteFinish: { stabilityThreshold: 800, pollInterval: 200 },
+        depth: 8,
       });
-    });
 
-    this.logger.info('Electron store watcher started', {
-      paths: existingPaths,
+      this.watcher.on('add', (filePath) => this.handleFileChange(filePath));
+      this.watcher.on('change', (filePath) => this.handleFileChange(filePath));
+      this.watcher.on('error', (error: unknown) => {
+        const err = error instanceof Error ? error : new Error(String(error));
+        this.logger.debug('[ELECTRON] watcher error (ignorado)', { error: err.message });
+      });
+    }
+
+    const intervalMs = (this.config.scanIntervalSeconds || 10) * 1000;
+    this.scanTimer = setInterval(() => {
+      const n = this.runFullScan(existingPaths);
+      if (n > 0) {
+        this.logger.info('[ELECTRON] Scan periódico capturou pedidos', { count: n });
+      }
+    }, intervalMs);
+
+    this.logger.info('[ELECTRON] Watcher ativo', {
       watchTargets,
+      scanIntervalSeconds: this.config.scanIntervalSeconds,
     });
   }
 
   stop(): Promise<void> {
+    if (this.scanTimer) {
+      clearInterval(this.scanTimer);
+      this.scanTimer = null;
+    }
     return this.watcher?.close() ?? Promise.resolve();
   }
 
-  /** Only watch paths that may contain order cache data — not the entire profile. */
+  private runFullScan(basePaths: string[]): number {
+    let totalCaptured = 0;
+    let filesScanned = 0;
+    let jsonBlobsFound = 0;
+    const sampleFiles: string[] = [];
+
+    for (const basePath of basePaths) {
+      for (const filePath of this.listScannableFiles(basePath)) {
+        filesScanned++;
+        if (sampleFiles.length < 8) sampleFiles.push(filePath);
+
+        const result = this.processFile(filePath);
+        totalCaptured += result.captured;
+        jsonBlobsFound += result.blobs;
+      }
+    }
+
+    this.lastDiagnostics = {
+      appDataPaths: basePaths,
+      filesScanned,
+      jsonBlobsFound,
+      ordersCaptured: totalCaptured,
+      sampleFiles,
+    };
+
+    return totalCaptured;
+  }
+
+  private listScannableFiles(dir: string, depth = 0): string[] {
+    if (depth > 10) return [];
+    const files: string[] = [];
+
+    try {
+      for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+        if (IGNORED_DIR_NAMES.has(entry.name)) continue;
+        const fullPath = path.join(dir, entry.name);
+        if (this.shouldIgnorePath(fullPath)) continue;
+
+        if (entry.isDirectory()) {
+          files.push(...this.listScannableFiles(fullPath, depth + 1));
+        } else if (entry.isFile()) {
+          const ext = path.extname(entry.name).toLowerCase();
+          const base = entry.name.toLowerCase();
+          if (
+            SCAN_FILE_EXTENSIONS.has(ext) ||
+            base.includes('local-storage') ||
+            base === 'config.json'
+          ) {
+            files.push(fullPath);
+          }
+        }
+      }
+    } catch {
+      // locked or permission denied
+    }
+
+    return files;
+  }
+
   private collectWatchTargets(basePath: string): string[] {
     const candidates = [
       path.join(basePath, 'local-storage.json'),
@@ -138,10 +228,9 @@ export class ElectronStoreWatcher {
       path.join(basePath, 'IndexedDB'),
       path.join(basePath, 'Local Storage'),
     ];
-
-    return candidates.filter((candidate) => {
+    return candidates.filter((c) => {
       try {
-        return fs.existsSync(candidate);
+        return fs.existsSync(c);
       } catch {
         return false;
       }
@@ -150,115 +239,51 @@ export class ElectronStoreWatcher {
 
   private shouldIgnorePath(watchPath: string): boolean {
     if (IGNORED_PATH_PATTERN.test(watchPath)) return true;
-
-    const base = path.basename(watchPath);
-    if (IGNORED_FILE_NAMES.has(base)) return true;
-
-    const parts = watchPath.split(/[/\\]/);
-    return parts.some((part) => IGNORED_DIR_NAMES.has(part));
+    if (IGNORED_FILE_NAMES.has(path.basename(watchPath))) return true;
+    return watchPath.split(/[/\\]/).some((part) => IGNORED_DIR_NAMES.has(part));
   }
 
   private handleFileChange(filePath: string): void {
-    if (this.shouldIgnorePath(filePath)) return;
+    const result = this.processFile(filePath);
+    if (result.captured > 0) {
+      this.logger.info('[ELECTRON] Arquivo atualizado — pedidos capturados', {
+        file: filePath,
+        count: result.captured,
+      });
+    }
+  }
+
+  private processFile(filePath: string): { captured: number; blobs: number } {
+    if (this.shouldIgnorePath(filePath)) return { captured: 0, blobs: 0 };
 
     const ext = path.extname(filePath).toLowerCase();
-    const base = path.basename(filePath).toLowerCase();
+    let captured = 0;
+    let blobs = 0;
 
-    if (ext === '.json' || base.includes('local-storage') || base.includes('config')) {
-      this.parseJsonFile(filePath);
-      return;
-    }
-
-    if (filePath.includes('Local Storage') || filePath.includes('leveldb') || filePath.includes('IndexedDB')) {
-      this.parseLevelDbFile(filePath);
-    }
-  }
-
-  private scanDirectory(dir: string): void {
     try {
-      const entries = fs.readdirSync(dir, { withFileTypes: true });
-      for (const entry of entries) {
-        if (IGNORED_DIR_NAMES.has(entry.name)) continue;
-
-        const fullPath = path.join(dir, entry.name);
-        if (this.shouldIgnorePath(fullPath)) continue;
-
-        if (entry.isDirectory()) {
-          this.scanDirectory(fullPath);
-        } else if (entry.isFile()) {
-          this.handleFileChange(fullPath);
+      if (ext === '.json' || filePath.includes('local-storage')) {
+        const raw = fs.readFileSync(filePath, 'utf-8');
+        const parsed = JSON.parse(raw) as unknown;
+        captured += parseElectronStoreContent(parsed, this.cache, filePath);
+        blobs += 1;
+      } else {
+        const raw = fs.readFileSync(filePath);
+        const objects = extractJsonObjectsFromBuffer(raw);
+        blobs += objects.length;
+        for (const obj of objects) {
+          const orders = this.cache.ingestPayload(obj);
+          captured += orders.length;
         }
       }
     } catch {
-      // permission, missing dir, or locked file during initial scan
-    }
-  }
-
-  private parseJsonFile(filePath: string): void {
-    try {
-      const raw = fs.readFileSync(filePath, 'utf-8');
-      const parsed = JSON.parse(raw) as unknown;
-      this.ingestDeep(parsed, filePath);
-    } catch {
-      // not valid json or file locked
-    }
-  }
-
-  private parseLevelDbFile(filePath: string): void {
-    try {
-      const raw = fs.readFileSync(filePath);
-      const text = raw.toString('utf-8', 0, Math.min(raw.length, 512 * 1024));
-      const jsonMatches = text.match(/\{[^{}]*"(?:displayId|orderId|merchantId|pickupCode)"[^{}]*\}/g);
-      if (!jsonMatches) return;
-      for (const match of jsonMatches) {
-        try {
-          this.ingestDeep(JSON.parse(match), filePath);
-        } catch {
-          // skip invalid fragments
-        }
-      }
-    } catch {
-      // binary leveldb or locked file
-    }
-  }
-
-  private ingestDeep(data: unknown, source: string): void {
-    if (Array.isArray(data)) {
-      data.forEach((item) => this.ingestDeep(item, source));
-      return;
-    }
-    if (!data || typeof data !== 'object') return;
-
-    const obj = data as Record<string, unknown>;
-
-    if (obj.localStorage && typeof obj.localStorage === 'string') {
-      try {
-        this.ingestDeep(JSON.parse(obj.localStorage), source);
-      } catch {
-        // ignore
-      }
+      return { captured: 0, blobs: 0 };
     }
 
-    const hasOrderField = ORDER_KEY_PATTERNS.some((pattern) =>
-      JSON.stringify(obj).match(pattern),
-    );
-    if (hasOrderField) {
-      const captured = this.cache.ingestPayload(obj);
-      if (captured.length > 0) {
-        this.activity.ordersIngested(captured, 'electron-store', source);
-      }
+    if (captured > 0) {
+      const orders = this.cache.getAllOrders().slice(-captured);
+      this.activity.ordersIngested(orders, 'electron-store', filePath);
     }
 
-    for (const value of Object.values(obj)) {
-      if (value && typeof value === 'object') {
-        this.ingestDeep(value, source);
-      } else if (typeof value === 'string' && value.startsWith('{')) {
-        try {
-          this.ingestDeep(JSON.parse(value), source);
-        } catch {
-          // not json string
-        }
-      }
-    }
+    return { captured, blobs };
   }
 }

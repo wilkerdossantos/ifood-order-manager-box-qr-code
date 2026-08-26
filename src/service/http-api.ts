@@ -14,6 +14,7 @@ interface HttpApiOptions {
   logger: Logger;
   activity: ActivityLog;
   getProxyCaPath: () => string;
+  getDiagnostics: () => Record<string, unknown>;
 }
 
 export class HttpApi {
@@ -89,6 +90,14 @@ export class HttpApi {
 
     if (method === 'GET' && url.pathname === '/orders') {
       return this.json(res, 200, { orders: this.options.cache.getAllOrders() });
+    }
+
+    if (method === 'GET' && url.pathname === '/diagnostics') {
+      return this.json(res, 200, {
+        cache: this.options.cache.getStats(),
+        orders: this.options.cache.getAllOrders(),
+        ...this.options.getDiagnostics(),
+      });
     }
 
     if (method === 'GET' && url.pathname === '/config/ca-cert') {

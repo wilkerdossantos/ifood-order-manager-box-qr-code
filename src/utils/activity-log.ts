@@ -1,7 +1,7 @@
 import type { OrderData } from '../config/types.js';
 import type { Logger } from './logger.js';
 
-export type CaptureSource = 'proxy' | 'electron-store' | 'api' | 'print-bridge';
+export type CaptureSource = 'proxy' | 'electron-store' | 'cdp' | 'api' | 'print-bridge';
 
 export class ActivityLog {
   private proxyHits = 0;
@@ -18,6 +18,8 @@ export class ActivityLog {
     caCert: string;
     cachePath: string;
     watchTargets: string[];
+    cdpPort: number;
+    cdpEnabled: boolean;
   }): void {
     const lines = [
       '',
@@ -32,13 +34,16 @@ export class ActivityLog {
       `  3. Pedidos:       http://127.0.0.1:${config.healthPort}/orders`,
       '',
       '  Gestor Desktop — NÃO configure proxy do Windows!',
-      '  O serviço lê pedidos do cache local do Electron automaticamente.',
-      '  Abra o Gestor, receba um pedido e veja [PEDIDO CAPTURADO].',
       '',
-      '  (Opcional) Proxy HTTPS — só para Gestor Web, não Desktop:',
-      `  • proxyEnabled=true + mitmEnabled=true em config.json`,
-      `  • Proxy Windows → 127.0.0.1:${config.proxyPort} + certificado CA`,
+      '  PASSO 1: Inicie o Gestor com debug (obrigatório para capturar pedidos):',
+      `  • Execute: .\\scripts\\enable-gestor-debug.ps1`,
+      `  • Ou adicione ao atalho do Gestor: --remote-debugging-port=${config.cdpPort}`,
+      `  • Feche o Gestor e abra novamente pelo atalho criado`,
       '',
+      '  PASSO 2: Rode npm run dev e receba um pedido no Gestor',
+      '  Você deve ver: [CDP] Conectado ao Gestor + [PEDIDO CAPTURADO]',
+      '',
+      `  Diagnóstico: http://127.0.0.1:${config.healthPort}/diagnostics`,
       '  A cada 30s este terminal mostra um resumo [STATUS].',
       '  Quando um pedido for capturado, verá [PEDIDO CAPTURADO].',
       '',
@@ -101,8 +106,8 @@ export class ActivityLog {
   }): void {
     if (stats.uniqueOrders === 0 && stats.proxyHits === 0) {
       this.logger.info('[STATUS] Aguardando pedidos no Gestor Desktop', {
-        dica: 'NÃO use proxy Windows. Abra o Gestor, receba um pedido — o watcher lê o cache local.',
-        health: 'http://127.0.0.1:7420/cache/stats',
+        dica: 'Execute enable-gestor-debug.ps1, reinicie o Gestor e verifique /diagnostics (cdpConnected: true)',
+        health: 'http://127.0.0.1:7420/diagnostics',
       });
       return;
     }

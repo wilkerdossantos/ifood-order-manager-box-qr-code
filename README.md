@@ -4,7 +4,7 @@ Serviço Windows que captura dados de pedidos do **Gestor de Pedidos Desktop** (
 
 ## O que faz
 
-1. **Captura pedidos** via proxy HTTPS local e leitura do cache Electron (electron-store / IndexedDB)
+1. **Captura pedidos** via CDP (Chrome DevTools Protocol) na porta debug do Gestor + scan do cache Electron
 2. **Mantém cache** com os campos necessários para o QR: `merchantId`, `displayId`, `pickupCode`, `orderType`, `orderId`
 3. **Enriquece comandas** com QR ESC/POS via Print Bridge (named pipe) ou API HTTP local
 4. **Roda como serviço Windows** com auto-start
@@ -18,10 +18,10 @@ LOJA:{merchantId}|NP:{displayId}|CR:{pickupCode}|TIPO:{orderType}|ID:{orderId}
 ## Arquitetura
 
 ```
-Gestor Desktop (Electron)
+Gestor Desktop (Electron) — porta debug 9222
     │
-    ├── HTTPS APIs ──► Proxy :8888 ──► Order Cache
-    ├── electron-store / IndexedDB ──► File Watcher ──► Order Cache
+    ├── CDP Network + fetch/XHR hooks ──► Order Cache  (principal)
+    ├── electron-store / IndexedDB ──► File Watcher ──► Order Cache  (secundário)
     └── IPC printOrder ──► Impressora ──► Print Bridge (pipe) ──► + QR ESC/POS
 ```
 
@@ -41,12 +41,17 @@ cd ifood-order-manager-box-qr-code
 npm install
 npm run build
 
-# 2. Rode o serviço (NÃO configure proxy do Windows)
+# 2. Habilitar debug no Gestor (OBRIGATÓRIO para capturar pedidos)
+.\scripts\enable-gestor-debug.ps1
+# Feche o Gestor e abra pelo atalho *debug* criado
+
+# 3. Rode o serviço (NÃO configure proxy do Windows)
 npm run dev
 
-# 3. Abra o Gestor de Pedidos Desktop e receba um pedido
-# O serviço captura pedidos do cache local do Electron automaticamente
+# 4. Receba um pedido no Gestor — deve aparecer [CDP] Pedido capturado
 ```
+
+**Por que CDP?** O Gestor Desktop guarda pedidos no IndexedDB (formato binário V8). Ler arquivos não captura pedidos novos. A porta debug permite interceptar as APIs em tempo real — igual à extensão Chrome.
 
 **Importante:** Não configure proxy manual no Windows para o Gestor Desktop. O proxy quebra a conexão HTTPS do Electron.
 
@@ -166,6 +171,7 @@ npm run dev
 
 # Terminal 2
 npm run test:service
+curl http://127.0.0.1:7420/diagnostics
 curl http://127.0.0.1:7420/cache/stats
 ```
 

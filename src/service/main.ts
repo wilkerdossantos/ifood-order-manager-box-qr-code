@@ -1,5 +1,6 @@
 import path from 'node:path';
 
+import { CdpCollector } from '../collector/cdp-collector.js';
 import { ElectronStoreWatcher } from '../collector/electron-store-watcher.js';
 import { OrderCache } from '../collector/order-cache.js';
 import { ProxyInterceptor } from '../collector/proxy-interceptor.js';
@@ -30,6 +31,7 @@ export class QrService {
     this.logger,
     this.activity,
   );
+  private cdpCollector = new CdpCollector(this.config, this.cache, this.logger, this.activity);
   private printBridge = new PrintBridgeServer(
     this.config,
     this.enricher,
@@ -43,6 +45,13 @@ export class QrService {
     logger: this.logger,
     activity: this.activity,
     getProxyCaPath: () => this.proxy.getCaCertPath(),
+    getDiagnostics: () => ({
+      electron: this.electronWatcher.getDiagnostics(),
+      cdpConnected: this.cdpCollector.isConnected(),
+      cdpPort: this.config.cdpPort,
+      cdpEnabled: this.config.cdpEnabled,
+      cdpTargets: this.cdpCollector.getAvailableTargets(),
+    }),
   });
   private statusReporter = createStatusReporter(
     this.cache,
@@ -85,6 +94,7 @@ export class QrService {
 
     if (this.config.enabled) {
       this.electronWatcher.start();
+      this.cdpCollector.start();
     }
 
     this.activity.startupBanner({
@@ -94,6 +104,8 @@ export class QrService {
       caCert: this.proxy.getCaCertPath(),
       cachePath: this.config.cachePath,
       watchTargets: this.electronWatcher.getWatchTargets(),
+      cdpPort: this.config.cdpPort,
+      cdpEnabled: this.config.cdpEnabled,
     });
 
     this.statusReporter.start();
@@ -109,6 +121,7 @@ export class QrService {
     this.statusReporter.stop();
     this.cache.flush();
     await this.electronWatcher.stop();
+    this.cdpCollector.stop();
     await this.proxy.stop();
     await this.printBridge.stop();
     await this.httpApi.stop();
