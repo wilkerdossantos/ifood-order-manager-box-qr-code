@@ -6,6 +6,7 @@ import { OrderCache } from '../collector/order-cache.js';
 import { ProxyInterceptor } from '../collector/proxy-interceptor.js';
 import { loadConfig, getDataDir } from '../config/index.js';
 import { PrintBridgeServer } from '../print/bridge-server.js';
+import { PrintPreviewWriter } from '../print/preview-writer.js';
 import { InvoiceEnricher } from '../qr/invoice-enricher.js';
 import { ActivityLog } from '../utils/activity-log.js';
 import { createLogger } from '../utils/logger.js';
@@ -17,7 +18,8 @@ export class QrService {
   private logger = createLogger(this.config);
   private activity = new ActivityLog(this.logger);
   private cache = new OrderCache(this.config.cachePath);
-  private enricher = new InvoiceEnricher(this.cache, this.config);
+  private previewWriter = new PrintPreviewWriter(this.config, this.logger);
+  private enricher = new InvoiceEnricher(this.cache, this.config, this.previewWriter);
   private proxy = new ProxyInterceptor({
     config: this.config,
     cache: this.cache,
@@ -31,7 +33,13 @@ export class QrService {
     this.logger,
     this.activity,
   );
-  private cdpCollector = new CdpCollector(this.config, this.cache, this.logger, this.activity);
+  private cdpCollector = new CdpCollector(
+    this.config,
+    this.cache,
+    this.enricher,
+    this.logger,
+    this.activity,
+  );
   private printBridge = new PrintBridgeServer(
     this.config,
     this.enricher,
@@ -51,6 +59,7 @@ export class QrService {
       cdpPort: this.config.cdpPort,
       cdpEnabled: this.config.cdpEnabled,
       cdpTargets: this.cdpCollector.getAvailableTargets(),
+      printPreviewDir: this.previewWriter.getPreviewDir(),
     }),
   });
   private statusReporter = createStatusReporter(
@@ -106,6 +115,7 @@ export class QrService {
       watchTargets: this.electronWatcher.getWatchTargets(),
       cdpPort: this.config.cdpPort,
       cdpEnabled: this.config.cdpEnabled,
+      printPreviewDir: this.previewWriter.getPreviewDir(),
     });
 
     this.statusReporter.start();

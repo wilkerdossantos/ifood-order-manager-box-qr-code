@@ -3,6 +3,7 @@ import { shouldIngestUrl } from '../utils/strings.js';
 import type { Logger } from '../utils/logger.js';
 import type { ActivityLog } from '../utils/activity-log.js';
 import type { OrderCache } from './order-cache.js';
+import type { InvoiceEnricher } from '../qr/invoice-enricher.js';
 
 interface CdpTarget {
   id: string;
@@ -18,20 +19,30 @@ interface LastPayload {
   at: number;
 }
 
+interface PrintQueueItem {
+  invoice: string;
+  printerName: string;
+  restArgs: unknown[];
+  at: number;
+}
+
 export class CdpCollector {
   private ws: WebSocket | null = null;
   private msgId = 1;
   private pending = new Map<number, { resolve: (v: unknown) => void; reject: (e: Error) => void }>();
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private pollTimer: ReturnType<typeof setInterval> | null = null;
+  private printPollTimer: ReturnType<typeof setInterval> | null = null;
   private running = false;
   private connected = false;
   private lastPayloadAt = 0;
   private availableTargets: string[] = [];
+  private printQueueProcessing = false;
 
   constructor(
     private config: ServiceConfig,
     private cache: OrderCache,
+    private enricher: InvoiceEnricher,
     private logger: Logger,
     private activity: ActivityLog,
   ) {}
@@ -54,6 +65,7 @@ export class CdpCollector {
     this.running = false;
     if (this.reconnectTimer) clearTimeout(this.reconnectTimer);
     if (this.pollTimer) clearInterval(this.pollTimer);
+    if (this.printPollTimer) clearInterval(this.printPollTimer);
     this.ws?.close();
     this.ws = null;
     this.connected = false;
@@ -130,8 +142,10 @@ export class CdpCollector {
           await this.send('Network.enable', {});
           await this.send('Runtime.enable', {});
           await this.injectNetworkHooks();
+          await this.injectPrintHook();
           this.startPayloadPolling();
-          this.logger.info('[CDP] Interceptação ativa — pedidos serão capturados em tempo real');
+          this.startPrintPolling();
+          this.logger.info('[CDP] Interceptação ativa — pedidos e impressão serão capturados');
           resolve();
         } catch (err) {
           this.connected = false;
@@ -171,6 +185,10 @@ export class CdpCollector {
         if (this.pollTimer) {
           clearInterval(this.pollTimer);
           this.pollTimer = null;
+        }
+        if (this.printPollTimer) {
+          clearInterval(this.printPollTimer);
+          this.printPollTimer = null;
         }
         if (this.running) {
           this.logger.warn('[CDP] Conexão perdida — tentando reconectar...');
@@ -284,6 +302,105 @@ export class CdpCollector {
     `;
     await this.send('Runtime.evaluate', { expression: script });
     await this.send('Page.addScriptToEvaluateOnNewDocument', { source: script });
+  }
+
+  private startPrintPolling(): void {
+    if (this.printPollTimer) clearInterval(this.printPollTimer);
+    this.printPollTimer = setInterval(() => {
+      void this.processPrintQueue();
+    }, 150);
+  }
+
+  private async processPrintQueue(): Promise<void> {
+    if (!this.connected || this.printQueueProcessing) return;
+
+    try {
+      const result = (await this.send('Runtime.evaluate', {
+        expression: `(function() {
+          var q = window.__ifoodQrPrintQueue;
+          if (!q || !q.length) return null;
+          return q.shift();
+        })()`,
+        returnByValue: true,
+      })) as { result?: { value?: PrintQueueItem | null } };
+
+      const item = result?.result?.value;
+      if (!item?.invoice) return;
+
+      this.printQueueProcessing = true;
+      this.logger.info('[CDP] Impressão interceptada — enriquecendo comanda', {
+        printer: item.printerName || 'N/A',
+        invoiceLength: item.invoice.length,
+      });
+
+      const detail = await this.enricher.enrichInvoiceDetailed(item.invoice, {
+        printerName: item.printerName,
+      });
+
+      if (detail.modified && detail.order) {
+        this.activity.printEnriched(detail.order.displayId, detail.payload || '');
+        this.logger.info('[CDP] QR adicionado à comanda', {
+          pedido: detail.order.displayId,
+          pdfMode: detail.pdfMode,
+          preview: detail.previewPath || undefined,
+        });
+      } else {
+        this.logger.warn('[CDP] Comanda não modificada — pedido não encontrado no cache', {
+          dica: 'Confirme que o pedido foi capturado antes de imprimir',
+        });
+      }
+
+      const dispatchArgs = JSON.stringify(['printOrder', detail.invoice, ...(item.restArgs || [])]);
+      await this.send('Runtime.evaluate', {
+        expression: `(function() {
+          var send = window.__ifoodQrOrigIpcSend;
+          if (!send) return 'no-hook';
+          send.apply(null, ${dispatchArgs});
+          return 'ok';
+        })()`,
+      });
+    } catch (err) {
+      this.logger.warn('[CDP] Falha ao processar fila de impressão', {
+        error: err instanceof Error ? err.message : String(err),
+      });
+    } finally {
+      this.printQueueProcessing = false;
+    }
+  }
+
+  private async injectPrintHook(): Promise<void> {
+    const script = `
+      (function() {
+        if (window.__ifoodQrPrintHooked) return;
+        try {
+          var electron = window.require('electron');
+          var origSend = electron.ipcRenderer.send.bind(electron.ipcRenderer);
+          window.__ifoodQrOrigIpcSend = origSend;
+          window.__ifoodQrPrintQueue = window.__ifoodQrPrintQueue || [];
+
+          electron.ipcRenderer.send = function(channel) {
+            var args = Array.prototype.slice.call(arguments, 1);
+            if (channel === 'printOrder' && typeof args[0] === 'string') {
+              window.__ifoodQrPrintQueue.push({
+                invoice: args[0],
+                printerName: args[1] || '',
+                restArgs: args.slice(1),
+                at: Date.now()
+              });
+              return;
+            }
+            return origSend.apply(null, [channel].concat(args));
+          };
+
+          window.__ifoodQrPrintHooked = true;
+        } catch (e) {
+          window.__ifoodQrPrintHookError = String(e);
+        }
+      })();
+    `;
+    await this.send('Runtime.evaluate', { expression: script });
+    await this.send('Page.addScriptToEvaluateOnNewDocument', { source: script });
+    this.logger.info('[CDP] Hook de impressão instalado (printOrder via IPC)');
   }
 
   private async handleResponseReceived(params: Record<string, unknown>): Promise<void> {

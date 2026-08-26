@@ -2,32 +2,74 @@ import type { OrderData, PrintMeta, ServiceConfig } from '../config/types.js';
 import { injectPdfQrText, injectThermalQr } from '../qr/escpos.js';
 import { generateQrPayload } from '../qr/payload.js';
 import type { OrderCache } from '../collector/order-cache.js';
+import type { PrintPreviewWriter } from '../print/preview-writer.js';
 
 export interface EnrichOptions {
   pdfMode?: boolean;
   printerName?: string;
   printMeta?: PrintMeta;
+  savePreview?: boolean;
+}
+
+export interface EnrichResult {
+  invoice: string;
+  modified: boolean;
+  pdfMode: boolean;
+  payload?: string;
+  order?: OrderData;
+  previewPath?: string | null;
 }
 
 export class InvoiceEnricher {
   constructor(
     private cache: OrderCache,
     private config: ServiceConfig,
+    private previewWriter?: PrintPreviewWriter,
   ) {}
 
   async enrichInvoice(invoice: string, options: EnrichOptions = {}): Promise<string> {
-    if (!this.config.enabled) return invoice;
+    const result = await this.enrichInvoiceDetailed(invoice, options);
+    return result.invoice;
+  }
+
+  async enrichInvoiceDetailed(invoice: string, options: EnrichOptions = {}): Promise<EnrichResult> {
+    if (!this.config.enabled) {
+      return { invoice, modified: false, pdfMode: false };
+    }
 
     const data = await this.cache.resolveOrderForPrint(invoice, options.printMeta || {});
-    if (!data) return invoice;
+    if (!data) {
+      return { invoice, modified: false, pdfMode: this.shouldUsePdfSafeMode(options) };
+    }
 
     const payload = generateQrPayload(data);
-    const pdfSafe = this.shouldUsePdfSafeMode(options);
+    const pdfMode = this.shouldUsePdfSafeMode(options);
 
-    if (pdfSafe) {
-      return injectPdfQrText(invoice, payload);
+    const enriched = pdfMode
+      ? injectPdfQrText(invoice, payload)
+      : injectThermalQr(invoice, payload);
+
+    const modified = enriched !== invoice;
+    let previewPath: string | null = null;
+
+    if (modified && options.savePreview !== false && this.previewWriter) {
+      previewPath = this.previewWriter.save({
+        invoice: enriched,
+        payload,
+        pdfMode,
+        printerName: options.printerName,
+        displayId: data.displayId,
+      });
     }
-    return injectThermalQr(invoice, payload);
+
+    return {
+      invoice: enriched,
+      modified,
+      pdfMode,
+      payload,
+      order: data,
+      previewPath,
+    };
   }
 
   async enrichPrintBody(body: string): Promise<string> {

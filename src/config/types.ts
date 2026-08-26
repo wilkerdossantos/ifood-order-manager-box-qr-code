@@ -36,6 +36,9 @@ export interface ServiceConfig {
   cdpEnabled: boolean;
   cdpPort: number;
   cdpReconnectSeconds: number;
+  /** Salva cópia legível de cada comanda enriquecida (útil com Microsoft Print to PDF) */
+  printPreviewEnabled: boolean;
+  printPreviewDir: string;
 }
 
 export const DEFAULT_CONFIG: ServiceConfig = {
@@ -65,6 +68,8 @@ export const DEFAULT_CONFIG: ServiceConfig = {
   cdpEnabled: true,
   cdpPort: 9222,
   cdpReconnectSeconds: 8,
+  printPreviewEnabled: true,
+  printPreviewDir: '',
 };
 
 export interface PrintMeta {

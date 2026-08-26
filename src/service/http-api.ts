@@ -133,10 +133,20 @@ export class HttpApi {
         if (!parsed.invoice) {
           return this.json(res, 400, { ok: false, error: 'invoice required' });
         }
-        const enriched = await this.options.enricher.enrichInvoice(parsed.invoice, {
+        const detail = await this.options.enricher.enrichInvoiceDetailed(parsed.invoice, {
           printerName: parsed.printerName,
         });
-        return this.json(res, 200, { ok: true, invoice: enriched });
+        if (detail.modified && detail.order) {
+          this.options.activity.printEnriched(detail.order.displayId, detail.payload || '');
+        }
+        return this.json(res, 200, {
+          ok: true,
+          invoice: detail.invoice,
+          modified: detail.modified,
+          pdfMode: detail.pdfMode,
+          payload: detail.payload,
+          previewPath: detail.previewPath,
+        });
       } catch {
         return this.json(res, 400, { ok: false, error: 'Invalid JSON' });
       }

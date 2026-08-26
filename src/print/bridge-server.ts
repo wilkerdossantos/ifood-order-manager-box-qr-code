@@ -26,6 +26,9 @@ export interface PrintBridgeResponse {
   ok: boolean;
   invoice?: string;
   payload?: string;
+  modified?: boolean;
+  pdfMode?: boolean;
+  previewPath?: string | null;
   error?: string;
 }
 
@@ -96,26 +99,25 @@ export class PrintBridgeServer {
 
       if (req.action === 'enrich' && req.invoice) {
         this.logger.info('[PRINT BRIDGE] Requisição de enriquecimento recebida');
-        const enriched = await this.enricher.enrichInvoice(req.invoice, {
+        const detail = await this.enricher.enrichInvoiceDetailed(req.invoice, {
           printerName: req.printerName,
           pdfMode: req.pdfMode,
           printMeta: req.printMeta,
         });
-        const order = await this.enricher.resolvePayloadForInvoice(req.invoice);
-        if (order?.displayId && enriched !== req.invoice) {
-          this.activity.printEnriched(
-            order.displayId,
-            `LOJA:${order.merchantId}|NP:${order.displayId}|CR:${order.pickupCode}|TIPO:${order.orderType}|ID:${order.orderId}`,
-          );
-        } else if (enriched === req.invoice) {
+        if (detail.modified && detail.order) {
+          this.activity.printEnriched(detail.order.displayId, detail.payload || '');
+        } else if (!detail.modified) {
           this.logger.warn('[PRINT BRIDGE] Comanda não modificada — pedido não encontrado no cache', {
-            dica: 'Verifique se o proxy está capturando pedidos ou se o número na comanda bate com o cache',
+            dica: 'Verifique se o CDP capturou o pedido antes de imprimir',
           });
         }
         return {
           ok: true,
-          invoice: enriched,
-          payload: order ? `LOJA:${order.merchantId}|NP:${order.displayId}|CR:${order.pickupCode}|TIPO:${order.orderType}|ID:${order.orderId}` : undefined,
+          invoice: detail.invoice,
+          modified: detail.modified,
+          pdfMode: detail.pdfMode,
+          payload: detail.payload,
+          previewPath: detail.previewPath,
         };
       }
 

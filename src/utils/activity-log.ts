@@ -20,6 +20,7 @@ export class ActivityLog {
     watchTargets: string[];
     cdpPort: number;
     cdpEnabled: boolean;
+    printPreviewDir: string;
   }): void {
     const lines = [
       '',
@@ -41,7 +42,12 @@ export class ActivityLog {
       `  • Feche o Gestor e abra novamente pelo atalho criado`,
       '',
       '  PASSO 2: Rode npm run dev e receba um pedido no Gestor',
-      '  Você deve ver: [CDP] Conectado ao Gestor + [PEDIDO CAPTURADO]',
+      '  Você deve ver: [CDP] Conectado + [PEDIDO CAPTURADO]',
+      '',
+      '  PASSO 3: Imprima a comanda (Microsoft Print to PDF funciona para teste)',
+      '  • No PDF, o QR aparece como texto legível: QR: LOJA:...|NP:...',
+      `  • Preview salvo em: ${config.printPreviewDir}`,
+      '  • Log: [CDP] Impressão interceptada + [IMPRESSÃO] QR adicionado',
       '',
       `  Diagnóstico: http://127.0.0.1:${config.healthPort}/diagnostics`,
       '  A cada 30s este terminal mostra um resumo [STATUS].',

@@ -108,6 +108,42 @@ Arquivo: `%ProgramData%\iFoodQrService\config.json`
 | `/print` | POST | Enriquece body JSON de print (compatível extensão) |
 | `/config/ca-cert` | GET | Download certificado CA |
 
+## Impressão no Gestor Desktop
+
+O Gestor envia a comanda via IPC `printOrder`. O serviço **intercepta essa chamada pelo CDP**, adiciona o QR e só então manda imprimir.
+
+### Testar com Microsoft Print to PDF (sem impressora térmica)
+
+1. Selecione **Microsoft Print to PDF** no Gestor
+2. Imprima um pedido que já apareceu como `[PEDIDO CAPTURADO]`
+3. Abra o PDF — no final deve haver texto legível:
+
+```
+────────────────────────────────
+QR:
+LOJA:...|NP:6798|CR:XY12|TIPO:RETIRADA|ID:...
+```
+
+4. Cópia da comanda enriquecida também em:
+
+```
+C:\ProgramData\iFoodQrService\print-preview\
+```
+
+No terminal, ao imprimir:
+
+```
+[CDP] Impressão interceptada — enriquecendo comanda
+[IMPRESSÃO] QR adicionado à comanda
+[PRINT] Preview salvo
+```
+
+Teste via API (com `npm run dev` rodando):
+
+```powershell
+npm run test:print-pdf
+```
+
 ## Print Bridge
 
 Integração com driver/impressora virtual via named pipe:
@@ -153,7 +189,9 @@ Com `npm run dev`, o terminal mostra:
 | `[STATUS]` | Resumo a cada 30s (pedidos no cache, hits do proxy) |
 | `[PROXY]` | Requisição HTTPS interceptada |
 | `[PEDIDO CAPTURADO]` | Pedido salvo no cache |
+| `[CDP]` | Pedido capturado ou impressão interceptada |
 | `[IMPRESSÃO]` | QR adicionado a uma comanda |
+| `[PRINT]` | Preview da comanda salvo em disco |
 | `[PRINT BRIDGE]` | Requisição via named pipe |
 
 Arquivos de log (Windows):

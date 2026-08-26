@@ -39,6 +39,15 @@ describe('InvoiceEnricher', () => {
     expect(enriched.length).toBeGreaterThan(invoiceSample.length);
   });
 
+  it('uses readable text for PDF printers', async () => {
+    const enriched = await enricher.enrichInvoice(invoiceSample, {
+      printerName: 'Microsoft Print to PDF',
+    });
+    expect(enriched).toContain('QR:');
+    expect(enriched).toContain('LOJA:');
+    expect(enriched).not.toContain('\x1d(');
+  });
+
   it('enriches print body JSON', async () => {
     const body = JSON.stringify({
       invoice: invoiceSample,
