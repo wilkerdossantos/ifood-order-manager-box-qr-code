@@ -1,0 +1,10 @@
+        iFood
+    Restaurante Teste
+    ────────────────────────────────
+    PEDIDO: #6798
+    DATA: 26/08/2026 13:00
+    RETIRADA
+    CÓDIGO DE COLETA: XY12
+    ────────────────────────────────
+    ITENS:
+    1x X-Burger

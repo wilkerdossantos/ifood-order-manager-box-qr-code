@@ -1,0 +1,21 @@
+# Dependencies
+node_modules/
+dist/
+
+# Logs and runtime data
+*.log
+.cache/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.idea/
+.vscode/
+
+# Test artifacts
+coverage/
+
+# Local config overrides
+config.local.json
