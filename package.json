@@ -10,6 +10,7 @@
     "dev": "tsx src/service/main.ts",
     "stop": "powershell -ExecutionPolicy Bypass -File scripts/stop-dev.ps1",
     "install:virtual-printer": "powershell -ExecutionPolicy Bypass -File scripts/install-virtual-printer.ps1",
+    "enable:gestor": "powershell -ExecutionPolicy Bypass -File scripts/enable-gestor-debug.ps1",
     "test:service": "node scripts/test-service.js",
     "test:print-pdf": "node scripts/test-print-pdf.js",
     "print:receiver": "node scripts/print-port-receiver.js",
