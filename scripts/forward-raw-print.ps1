@@ -15,7 +15,7 @@ param(
 $ErrorActionPreference = 'Stop'
 
 if (-not (Test-Path $FilePath)) {
-    Write-Error "Arquivo não encontrado: $FilePath"
+    Write-Error "Arquivo nao encontrado: $FilePath"
 }
 
 Add-Type -TypeDefinition @"

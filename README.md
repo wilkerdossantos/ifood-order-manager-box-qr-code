@@ -117,11 +117,17 @@ Gestor → "iFood QR Bridge" (virtual) → print-port-receiver.js → serviço :
 ```
 
 ```powershell
-# Instalar impressora virtual + configurar destino
+# PowerShell (Admin) — forma correta no Windows:
 .\scripts\install-virtual-printer.ps1 -TargetPrinter "Microsoft Print to PDF"
 
-# No Gestor: selecionar impressora "iFood QR Bridge"
+# Ou via npm (funciona no Git Bash / CMD também):
+npm run install:virtual-printer -- -TargetPrinter "Microsoft Print to PDF"
+
+# Ou:
+scripts\install-virtual-printer.cmd -TargetPrinter "Microsoft Print to PDF"
 ```
+
+> **Não use `./install-virtual-printer.ps1` no bash/sh** — arquivos `.ps1` são PowerShell, não shell script.
 
 Detalhes: [docs/PRINT-BRIDGE-DRIVER.md](docs/PRINT-BRIDGE-DRIVER.md)
 

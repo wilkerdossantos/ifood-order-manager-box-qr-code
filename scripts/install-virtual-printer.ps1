@@ -5,13 +5,18 @@
 
 .DESCRIPTION
     Cria impressora Generic/Text Only que redireciona jobs para print-port-receiver.js.
-    Requer RedMon (http://www.redmon.com/downloads.html) para redirecionar porta → programa.
+    Requer RedMon (http://www.redmon.com/downloads.html) para redirecionar porta -> programa.
 
 .PARAMETER TargetPrinter
-    Impressora física de destino (ex.: "EPSON TM-T20" ou "Microsoft Print to PDF").
+    Impressora fisica de destino (ex.: "EPSON TM-T20" ou "Microsoft Print to PDF").
 
 .EXAMPLE
     .\install-virtual-printer.ps1 -TargetPrinter "Microsoft Print to PDF"
+
+.NOTES
+    Execute com PowerShell (nao bash/sh):
+      .\scripts\install-virtual-printer.ps1 -TargetPrinter "Microsoft Print to PDF"
+      npm run install:virtual-printer -- -TargetPrinter "Microsoft Print to PDF"
 #>
 
 param(
@@ -29,15 +34,15 @@ $ConfigPath = "$env:ProgramData\iFoodQrService\config.json"
 $RedMonGuid = "{12345678-1234-1234-1234-123456789ABC}"
 
 Write-Host ""
-Write-Host "=== iFood QR — Impressora Virtual ===" -ForegroundColor Cyan
+Write-Host "=== iFood QR - Impressora Virtual ===" -ForegroundColor Cyan
 Write-Host ""
 
 if (-not $NodePath) {
-    Write-Error "Node.js não encontrado. Instale Node.js 18+."
+    Write-Error "Node.js nao encontrado. Instale Node.js 18+."
 }
 
 if (-not (Test-Path $ReceiverScript)) {
-    Write-Error "Receiver não encontrado: $ReceiverScript"
+    Write-Error "Receiver nao encontrado: $ReceiverScript"
 }
 
 # Atualizar config.json com target printer
@@ -52,7 +57,7 @@ if ($TargetPrinter) {
     $config | ConvertTo-Json -Depth 10 | Set-Content $ConfigPath -Encoding UTF8
     Write-Host "Config atualizado: targetPrinterName = $TargetPrinter" -ForegroundColor Green
 } else {
-    Write-Host "AVISO: -TargetPrinter não informado. Configure targetPrinterName em config.json" -ForegroundColor Yellow
+    Write-Host "AVISO: -TargetPrinter nao informado. Configure targetPrinterName em config.json" -ForegroundColor Yellow
 }
 
 # Verificar RedMon
@@ -61,7 +66,7 @@ $RedMonInstalled = $null -ne $RedMonPort
 
 if (-not $RedMonInstalled) {
     Write-Host ""
-    Write-Host "RedMon NÃO detectado (porta RPT1:)." -ForegroundColor Yellow
+    Write-Host "RedMon NAO detectado (porta RPT1:)." -ForegroundColor Yellow
     Write-Host "Instale RedMon 1.9: http://www.redmon.com/downloads.html" -ForegroundColor White
     Write-Host "Depois execute este script novamente." -ForegroundColor White
     Write-Host ""
@@ -70,7 +75,7 @@ if (-not $RedMonInstalled) {
 # Criar impressora virtual (Generic / Text Only)
 $existing = Get-Printer -Name $VirtualPrinterName -ErrorAction SilentlyContinue
 if ($existing) {
-    Write-Host "Impressora '$VirtualPrinterName' já existe." -ForegroundColor Green
+    Write-Host "Impressora '$VirtualPrinterName' ja existe." -ForegroundColor Green
 } else {
     if ($RedMonInstalled) {
         Add-Printer -Name $VirtualPrinterName -DriverName "Generic / Text Only" -PortName "RPT1:"
@@ -82,11 +87,12 @@ if ($existing) {
             Add-PrinterPort -Name $FilePort -FileName "$env:TEMP\ifood-qr-output.prn"
         }
         Add-Printer -Name $VirtualPrinterName -DriverName "Generic / Text Only" -PortName $FilePort
-        Write-Host "Impressora criada (modo FILE — instale RedMon para produção): $VirtualPrinterName" -ForegroundColor Yellow
+        $msg = "Impressora criada (modo FILE - instale RedMon para producao): $VirtualPrinterName"
+        Write-Host $msg -ForegroundColor Yellow
     }
 }
 
-# Configurar RedMon (registry) — redirect to node receiver
+# Configurar RedMon (registry) - redirect to node receiver
 $RedMonKey = "HKLM:\SYSTEM\CurrentControlSet\Control\Print\Monitors\Redirected Port\RPT1:"
 
 if ($RedMonInstalled) {
@@ -105,15 +111,15 @@ if ($RedMonInstalled) {
 }
 
 Write-Host ""
-Write-Host "PRÓXIMOS PASSOS:" -ForegroundColor Cyan
-Write-Host "  1. npm run dev  (serviço na porta 7420)"
-Write-Host "  2. No Gestor → Impressora → '$VirtualPrinterName'"
+Write-Host "PROXIMOS PASSOS:" -ForegroundColor Cyan
+Write-Host "  1. npm run dev  (servico na porta 7420)"
+Write-Host "  2. No Gestor -> Impressora -> '$VirtualPrinterName'"
 if ($TargetPrinter) {
-    Write-Host "  3. Jobs serão encaminhados para: $TargetPrinter"
+    Write-Host "  3. Jobs serao encaminhados para: $TargetPrinter"
 }
 Write-Host ""
 Write-Host "Teste manual (sem RedMon):" -ForegroundColor White
 Write-Host "  Get-Content docs\fixtures\invoice-sample.txt -Raw | node `"$ReceiverScript`" --stdin" -ForegroundColor Gray
 Write-Host ""
-Write-Host "Documentação: docs/PRINT-BRIDGE-DRIVER.md" -ForegroundColor Gray
+Write-Host "Documentacao: docs/PRINT-BRIDGE-DRIVER.md" -ForegroundColor Gray
 Write-Host ""
