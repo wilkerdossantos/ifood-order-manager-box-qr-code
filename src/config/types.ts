@@ -14,6 +14,8 @@ export interface ServiceConfig {
   cachePath: string;
   logPath: string;
   logLevel: 'debug' | 'info' | 'warn' | 'error';
+  statusIntervalSeconds: number;
+  logProxyTraffic: boolean;
   printerName: string;
   targetPrinterName: string;
   pipeName: string;
@@ -30,6 +32,8 @@ export const DEFAULT_CONFIG: ServiceConfig = {
   cachePath: '',
   logPath: '',
   logLevel: 'info',
+  statusIntervalSeconds: 30,
+  logProxyTraffic: true,
   printerName: 'iFood QR Bridge',
   targetPrinterName: '',
   pipeName: 'ifood-qr-service',

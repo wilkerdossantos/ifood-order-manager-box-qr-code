@@ -10,12 +10,14 @@ import forge from 'node-forge';
 import type { ServiceConfig } from '../config/types.js';
 import { shouldIngestUrl } from '../utils/strings.js';
 import type { Logger } from '../utils/logger.js';
+import type { ActivityLog } from '../utils/activity-log.js';
 import type { OrderCache } from './order-cache.js';
 
 interface ProxyInterceptorOptions {
   config: ServiceConfig;
   cache: OrderCache;
   logger: Logger;
+  activity: ActivityLog;
   certDir: string;
 }
 
@@ -218,6 +220,12 @@ export class ProxyInterceptor {
     this.forwardRequest(method, url, headers, requestBody, clientSocket, hostname, port);
   }
 
+  private logProxyTraffic(method: string, url: string): void {
+    if (!this.options.config.logProxyTraffic) return;
+    if (!shouldIngestUrl(url, this.options.config.ingestUrlPattern)) return;
+    this.options.activity.proxyRequest(method, url);
+  }
+
   private forwardRequest(
     method: string,
     url: string,
@@ -227,9 +235,14 @@ export class ProxyInterceptor {
     hostname: string,
     port: number,
   ): void {
+    this.logProxyTraffic(method, url);
+
     if (shouldIngestUrl(url, this.options.config.ingestUrlPattern) && body.length > 0) {
       try {
-        this.options.cache.ingestPayload(JSON.parse(body.toString('utf-8')));
+        const captured = this.options.cache.ingestPayload(JSON.parse(body.toString('utf-8')));
+        if (captured.length > 0) {
+          this.options.activity.ordersIngested(captured, 'proxy', url);
+        }
       } catch {
         // ignore
       }
@@ -258,10 +271,7 @@ export class ProxyInterceptor {
                 JSON.parse(responseBody.toString('utf-8')),
               );
               if (captured.length > 0) {
-                this.options.logger.debug('Captured orders from proxy', {
-                  url,
-                  count: captured.length,
-                });
+                this.options.activity.ordersIngested(captured, 'proxy', url);
               }
             } catch {
               // ignore

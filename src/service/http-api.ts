@@ -3,6 +3,7 @@ import { URL } from 'node:url';
 
 import type { ServiceConfig } from '../config/types.js';
 import type { Logger } from '../utils/logger.js';
+import type { ActivityLog } from '../utils/activity-log.js';
 import type { OrderCache } from '../collector/order-cache.js';
 import type { InvoiceEnricher } from '../qr/invoice-enricher.js';
 
@@ -11,6 +12,7 @@ interface HttpApiOptions {
   cache: OrderCache;
   enricher: InvoiceEnricher;
   logger: Logger;
+  activity: ActivityLog;
   getProxyCaPath: () => string;
 }
 
@@ -54,6 +56,8 @@ export class HttpApi {
     const url = new URL(req.url || '/', `http://127.0.0.1:${this.options.config.healthPort}`);
     const method = req.method || 'GET';
 
+    this.options.logger.debug('[API] request', { method, path: url.pathname });
+
     if (method === 'GET' && url.pathname === '/health') {
       return this.json(res, 200, {
         ok: true,
@@ -93,6 +97,9 @@ export class HttpApi {
       try {
         const parsed = JSON.parse(body);
         const captured = this.options.cache.ingestPayload(parsed);
+        if (captured.length > 0) {
+          this.options.activity.ordersIngested(captured, 'api', '/ingest');
+        }
         return this.json(res, 200, { ok: true, captured: captured.length });
       } catch {
         return this.json(res, 400, { ok: false, error: 'Invalid JSON' });

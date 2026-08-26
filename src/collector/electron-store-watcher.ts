@@ -5,6 +5,7 @@ import chokidar, { type FSWatcher } from 'chokidar';
 
 import type { ServiceConfig } from '../config/types.js';
 import type { Logger } from '../utils/logger.js';
+import type { ActivityLog } from '../utils/activity-log.js';
 import type { OrderCache } from './order-cache.js';
 
 const ORDER_KEY_PATTERNS = [
@@ -63,12 +64,18 @@ const IGNORED_PATH_PATTERN =
 
 export class ElectronStoreWatcher {
   private watcher: FSWatcher | null = null;
+  private lastWatchTargets: string[] = [];
 
   constructor(
     private config: ServiceConfig,
     private cache: OrderCache,
     private logger: Logger,
+    private activity: ActivityLog,
   ) {}
+
+  getWatchTargets(): string[] {
+    return [...this.lastWatchTargets];
+  }
 
   start(): void {
     const existingPaths = this.config.electronAppDataPaths.filter((p) => fs.existsSync(p));
@@ -87,8 +94,11 @@ export class ElectronStoreWatcher {
 
     if (watchTargets.length === 0) {
       this.logger.warn('No watchable Electron store targets found', { paths: existingPaths });
+      this.lastWatchTargets = [];
       return;
     }
+
+    this.lastWatchTargets = watchTargets;
 
     this.watcher = chokidar.watch(watchTargets, {
       ignored: (watchPath) => this.shouldIgnorePath(watchPath),
@@ -235,10 +245,7 @@ export class ElectronStoreWatcher {
     if (hasOrderField) {
       const captured = this.cache.ingestPayload(obj);
       if (captured.length > 0) {
-        this.logger.debug('Orders ingested from electron store', {
-          source,
-          count: captured.length,
-        });
+        this.activity.ordersIngested(captured, 'electron-store', source);
       }
     }
 

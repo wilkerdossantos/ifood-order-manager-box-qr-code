@@ -6,35 +6,58 @@ import { ProxyInterceptor } from '../collector/proxy-interceptor.js';
 import { loadConfig, getDataDir } from '../config/index.js';
 import { PrintBridgeServer } from '../print/bridge-server.js';
 import { InvoiceEnricher } from '../qr/invoice-enricher.js';
+import { ActivityLog } from '../utils/activity-log.js';
 import { createLogger } from '../utils/logger.js';
 import { HttpApi } from './http-api.js';
+import { createStatusReporter } from './status-reporter.js';
 
 export class QrService {
   private config = loadConfig();
   private logger = createLogger(this.config);
+  private activity = new ActivityLog(this.logger);
   private cache = new OrderCache(this.config.cachePath);
   private enricher = new InvoiceEnricher(this.cache, this.config);
   private proxy = new ProxyInterceptor({
     config: this.config,
     cache: this.cache,
     logger: this.logger,
+    activity: this.activity,
     certDir: path.join(getDataDir(), 'certs'),
   });
-  private electronWatcher = new ElectronStoreWatcher(this.config, this.cache, this.logger);
-  private printBridge = new PrintBridgeServer(this.config, this.enricher, this.logger);
+  private electronWatcher = new ElectronStoreWatcher(
+    this.config,
+    this.cache,
+    this.logger,
+    this.activity,
+  );
+  private printBridge = new PrintBridgeServer(
+    this.config,
+    this.enricher,
+    this.logger,
+    this.activity,
+  );
   private httpApi = new HttpApi({
     config: this.config,
     cache: this.cache,
     enricher: this.enricher,
     logger: this.logger,
+    activity: this.activity,
     getProxyCaPath: () => this.proxy.getCaCertPath(),
   });
+  private statusReporter = createStatusReporter(
+    this.cache,
+    this.activity,
+    this.logger,
+    this.config,
+  );
 
   async start(): Promise<void> {
     this.logger.info('Starting iFood QR Service', {
       enabled: this.config.enabled,
       proxyPort: this.config.proxyPort,
       healthPort: this.config.healthPort,
+      logFile: path.join(this.config.logPath, 'service.log'),
+      activityFile: path.join(this.config.logPath, 'activity.log'),
     });
 
     await this.httpApi.start();
@@ -51,6 +74,17 @@ export class QrService {
       this.electronWatcher.start();
     }
 
+    this.activity.startupBanner({
+      healthPort: this.config.healthPort,
+      proxyPort: this.config.proxyPort,
+      pipe: this.printBridge.getPipePath(),
+      caCert: this.proxy.getCaCertPath(),
+      cachePath: this.config.cachePath,
+      watchTargets: this.electronWatcher.getWatchTargets(),
+    });
+
+    this.statusReporter.start();
+
     this.logger.info('iFood QR Service ready', {
       pipe: this.printBridge.getPipePath(),
       caCert: this.proxy.getCaCertPath(),
@@ -59,6 +93,7 @@ export class QrService {
 
   async stop(): Promise<void> {
     this.logger.info('Stopping iFood QR Service');
+    this.statusReporter.stop();
     this.cache.flush();
     await this.electronWatcher.stop();
     await this.proxy.stop();

@@ -2,6 +2,7 @@ import net from 'node:net';
 
 import type { ServiceConfig } from '../config/types.js';
 import type { Logger } from '../utils/logger.js';
+import type { ActivityLog } from '../utils/activity-log.js';
 import type { InvoiceEnricher } from '../qr/invoice-enricher.js';
 
 export interface PrintBridgeRequest {
@@ -27,6 +28,7 @@ export class PrintBridgeServer {
     private config: ServiceConfig,
     private enricher: InvoiceEnricher,
     private logger: Logger,
+    private activity: ActivityLog,
   ) {
     this.pipePath =
       process.platform === 'win32'
@@ -83,12 +85,23 @@ export class PrintBridgeServer {
       }
 
       if (req.action === 'enrich' && req.invoice) {
+        this.logger.info('[PRINT BRIDGE] Requisição de enriquecimento recebida');
         const enriched = await this.enricher.enrichInvoice(req.invoice, {
           printerName: req.printerName,
           pdfMode: req.pdfMode,
           printMeta: req.printMeta,
         });
         const order = await this.enricher.resolvePayloadForInvoice(req.invoice);
+        if (order?.displayId && enriched !== req.invoice) {
+          this.activity.printEnriched(
+            order.displayId,
+            `LOJA:${order.merchantId}|NP:${order.displayId}|CR:${order.pickupCode}|TIPO:${order.orderType}|ID:${order.orderId}`,
+          );
+        } else if (enriched === req.invoice) {
+          this.logger.warn('[PRINT BRIDGE] Comanda não modificada — pedido não encontrado no cache', {
+            dica: 'Verifique se o proxy está capturando pedidos ou se o número na comanda bate com o cache',
+          });
+        }
         return {
           ok: true,
           invoice: enriched,

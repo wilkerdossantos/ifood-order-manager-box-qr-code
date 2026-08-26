@@ -105,9 +105,40 @@ node scripts/print-bridge-client.js --file docs/fixtures/invoice-sample.txt
 
 ```bash
 npm install
-npm run dev      # inicia em foreground
+npm run dev      # inicia em foreground (logs no terminal)
+npm run test:service   # testa health + ingest + enrich (com serviço rodando)
 npm test         # testes unitários
 npm run build    # compila TypeScript
+```
+
+### Logs
+
+Com `npm run dev`, o terminal mostra:
+
+| Tag | Significado |
+|-----|-------------|
+| `[STATUS]` | Resumo a cada 30s (pedidos no cache, hits do proxy) |
+| `[PROXY]` | Requisição HTTPS interceptada |
+| `[PEDIDO CAPTURADO]` | Pedido salvo no cache |
+| `[IMPRESSÃO]` | QR adicionado a uma comanda |
+| `[PRINT BRIDGE]` | Requisição via named pipe |
+
+Arquivos de log (Windows):
+
+```
+C:\ProgramData\iFoodQrService\logs\service.log    # log completo JSON
+C:\ProgramData\iFoodQrService\logs\activity.log   # só eventos importantes
+```
+
+### Verificar rapidamente
+
+```powershell
+# Terminal 1
+npm run dev
+
+# Terminal 2
+npm run test:service
+curl http://127.0.0.1:7420/cache/stats
 ```
 
 ## Rotas interceptadas
