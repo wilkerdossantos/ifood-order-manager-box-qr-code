@@ -63,14 +63,27 @@ export class QrService {
     await this.httpApi.start();
     await this.printBridge.start();
 
-    if (this.config.enabled) {
+    if (this.config.enabled && this.config.proxyEnabled) {
       try {
         await this.proxy.start();
+        this.logger.info('Proxy mode', {
+          mitmEnabled: this.config.mitmEnabled,
+          hint: this.config.mitmEnabled
+            ? 'MITM ativo — requer certificado CA'
+            : 'Túnel transparente — não captura HTTPS, mas não quebra internet',
+        });
       } catch (err) {
         this.logger.warn('HTTPS proxy failed to start; electron-store watcher remains active', {
           error: err instanceof Error ? err.message : String(err),
         });
       }
+    } else {
+      this.logger.info(
+        'Proxy desabilitado — modo Gestor Desktop (capture via electron-store, sem proxy Windows)',
+      );
+    }
+
+    if (this.config.enabled) {
       this.electronWatcher.start();
     }
 

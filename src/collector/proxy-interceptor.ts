@@ -188,11 +188,24 @@ export class ProxyInterceptor {
     const [hostname, portStr] = (req.url || '').split(':');
     const port = parseInt(portStr || '443', 10);
 
-    if (!hostname || !this.shouldProxyHost(hostname)) {
+    const useMitm =
+      this.options.config.mitmEnabled &&
+      hostname &&
+      this.shouldProxyHost(hostname);
+
+    if (!useMitm) {
       this.tunnelDirect(hostname, port, clientSocket, head);
       return;
     }
 
+    this.handleConnectMitm(hostname, port, clientSocket);
+  }
+
+  /**
+   * MITM HTTPS — só use com mitmEnabled=true e certificado CA instalado.
+   * Pode falhar com Electron; prefira electron-store watcher no Gestor Desktop.
+   */
+  private handleConnectMitm(hostname: string, port: number, clientSocket: net.Socket): void {
     try {
       const { cert, key } = this.createHostCertificate(hostname);
 
@@ -203,23 +216,30 @@ export class ProxyInterceptor {
         'connect-response',
       );
 
-      const tlsServer = tls.createServer({ cert, key }, (tlsSocket) => {
-        guardSocket(tlsSocket, this.options.logger, 'tls-client');
+      const tlsSocket = new tls.TLSSocket(clientSocket, {
+        isServer: true,
+        cert,
+        key,
+        rejectUnauthorized: false,
+      });
+
+      guardSocket(tlsSocket, this.options.logger, 'tls-client');
+      tlsSocket.on('secure', () => {
         this.handleTlsClient(tlsSocket, hostname, port);
       });
-
-      tlsServer.on('error', (err) => {
-        this.options.logger.debug('[PROXY] TLS server error', { error: err.message });
+      tlsSocket.on('error', (err) => {
+        this.options.logger.debug('[PROXY] MITM TLS error, falling back to tunnel', {
+          hostname,
+          error: err.message,
+        });
         safeDestroy(clientSocket);
       });
-
-      tlsServer.emit('connection', clientSocket);
     } catch (err) {
-      this.options.logger.debug('[PROXY] MITM handshake failed, tunneling direct', {
+      this.options.logger.debug('[PROXY] MITM failed, using direct tunnel', {
         hostname,
         error: err instanceof Error ? err.message : String(err),
       });
-      this.tunnelDirect(hostname, port, clientSocket, head);
+      this.tunnelDirect(hostname, port, clientSocket, Buffer.alloc(0));
     }
   }
 

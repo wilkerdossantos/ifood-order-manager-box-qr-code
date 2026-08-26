@@ -31,10 +31,13 @@ export class ActivityLog {
       `  2. Cache stats:   http://127.0.0.1:${config.healthPort}/cache/stats`,
       `  3. Pedidos:       http://127.0.0.1:${config.healthPort}/orders`,
       '',
-      '  Para capturar pedidos via proxy HTTPS:',
-      `  • Configure proxy Windows → 127.0.0.1:${config.proxyPort}`,
-      `  • Instale certificado CA → ${config.caCert}`,
-      '  • Abra o Gestor de Pedidos e receba um pedido',
+      '  Gestor Desktop — NÃO configure proxy do Windows!',
+      '  O serviço lê pedidos do cache local do Electron automaticamente.',
+      '  Abra o Gestor, receba um pedido e veja [PEDIDO CAPTURADO].',
+      '',
+      '  (Opcional) Proxy HTTPS — só para Gestor Web, não Desktop:',
+      `  • proxyEnabled=true + mitmEnabled=true em config.json`,
+      `  • Proxy Windows → 127.0.0.1:${config.proxyPort} + certificado CA`,
       '',
       '  A cada 30s este terminal mostra um resumo [STATUS].',
       '  Quando um pedido for capturado, verá [PEDIDO CAPTURADO].',
@@ -97,8 +100,8 @@ export class ActivityLog {
     lastProxyUrl: string | null;
   }): void {
     if (stats.uniqueOrders === 0 && stats.proxyHits === 0) {
-      this.logger.info('[STATUS] Aguardando dados — nenhum pedido no cache ainda', {
-        dica: 'Configure proxy 127.0.0.1:8888 + certificado CA, ou aguarde o Gestor gravar no electron-store',
+      this.logger.info('[STATUS] Aguardando pedidos no Gestor Desktop', {
+        dica: 'NÃO use proxy Windows. Abra o Gestor, receba um pedido — o watcher lê o cache local.',
         health: 'http://127.0.0.1:7420/cache/stats',
       });
       return;

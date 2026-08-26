@@ -32,22 +32,50 @@ Gestor Desktop (Electron)
 - Gestor de Pedidos Desktop instalado
 - Impressora térmica ESC/POS
 
-## Instalação
+## Instalação (Gestor Desktop — recomendado)
 
 ```powershell
 # 1. Clone e instale
 git clone <repo-url>
 cd ifood-order-manager-box-qr-code
+npm install
+npm run build
 
-# 2. Instale o serviço (requer Admin)
-.\scripts\install-service.ps1
+# 2. Rode o serviço (NÃO configure proxy do Windows)
+npm run dev
 
-# 3. Instale certificado raiz do proxy (requer Admin)
-.\scripts\install-ca-cert.ps1
-
-# 4. Configure proxy do Windows
-# Configurações → Rede → Proxy → 127.0.0.1:8888
+# 3. Abra o Gestor de Pedidos Desktop e receba um pedido
+# O serviço captura pedidos do cache local do Electron automaticamente
 ```
+
+**Importante:** Não configure proxy manual no Windows para o Gestor Desktop. O proxy quebra a conexão HTTPS do Electron.
+
+Se você já configurou o proxy e o Gestor mostra "Buscando conexão com a internet":
+
+```powershell
+.\scripts\disable-proxy.ps1
+```
+
+Depois reinicie o Gestor de Pedidos.
+
+## Instalação como serviço Windows
+
+```powershell
+.\scripts\install-service.ps1
+```
+
+## Proxy HTTPS (opcional — só Gestor Web)
+
+Para o Gestor **Web** no navegador (não Desktop), edite `%ProgramData%\iFoodQrService\config.json`:
+
+```json
+{
+  "proxyEnabled": true,
+  "mitmEnabled": true
+}
+```
+
+Então instale o certificado CA e configure proxy `127.0.0.1:8888`.
 
 ## Configuração
 

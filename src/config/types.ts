@@ -16,6 +16,14 @@ export interface ServiceConfig {
   logLevel: 'debug' | 'info' | 'warn' | 'error';
   statusIntervalSeconds: number;
   logProxyTraffic: boolean;
+  /** Inicia servidor proxy local. Para Gestor Desktop, deixe false. */
+  proxyEnabled: boolean;
+  /**
+   * Intercepta HTTPS (MITM) para capturar pedidos.
+   * false = túnel transparente (não quebra internet, mas não captura HTTPS).
+   * Para Gestor Desktop use false e capture via electron-store.
+   */
+  mitmEnabled: boolean;
   printerName: string;
   targetPrinterName: string;
   pipeName: string;
@@ -34,6 +42,8 @@ export const DEFAULT_CONFIG: ServiceConfig = {
   logLevel: 'info',
   statusIntervalSeconds: 30,
   logProxyTraffic: true,
+  proxyEnabled: false,
+  mitmEnabled: false,
   printerName: 'iFood QR Bridge',
   targetPrinterName: '',
   pipeName: 'ifood-qr-service',
