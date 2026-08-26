@@ -8,6 +8,7 @@
     "build": "tsc",
     "start": "node dist/service/main.js",
     "dev": "tsx src/service/main.ts",
+    "stop": "powershell -ExecutionPolicy Bypass -File scripts/stop-dev.ps1",
     "test:service": "node scripts/test-service.js",
     "test": "vitest run",
     "test:watch": "vitest"

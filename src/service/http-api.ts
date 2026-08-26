@@ -38,7 +38,18 @@ export class HttpApi {
         resolve();
       });
 
-      this.server.on('error', reject);
+      this.server.once('error', (err: NodeJS.ErrnoException) => {
+        if (err.code === 'EADDRINUSE') {
+          reject(
+            new Error(
+              `Porta ${this.options.config.healthPort} já em uso. ` +
+                'Outra instância do serviço está rodando. Execute: .\\scripts\\stop-dev.ps1',
+            ),
+          );
+          return;
+        }
+        reject(err);
+      });
     });
   }
 

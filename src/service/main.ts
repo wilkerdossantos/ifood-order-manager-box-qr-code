@@ -146,6 +146,14 @@ async function main(): Promise<void> {
 }
 
 main().catch((err) => {
+  const code = (err as NodeJS.ErrnoException).code;
+  if (code === 'EADDRINUSE') {
+    console.error('\n❌ Porta já em uso — outra instância do serviço está rodando.\n');
+    console.error('   Solução (PowerShell Admin):');
+    console.error('   .\\scripts\\stop-dev.ps1');
+    console.error('   npm run dev\n');
+    process.exit(1);
+  }
   console.error('Fatal error:', err);
   process.exit(1);
 });
