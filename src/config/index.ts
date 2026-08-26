@@ -53,6 +53,9 @@ export function loadConfig(configPath?: string): ServiceConfig {
   if (!config.spoolDir) {
     config.spoolDir = path.join(dataDir, 'spool');
   }
+  if (!config.printDebugDir) {
+    config.printDebugDir = path.join(config.spoolDir, 'debug');
+  }
 
   fs.mkdirSync(path.dirname(config.cachePath), { recursive: true });
   fs.mkdirSync(config.logPath, { recursive: true });

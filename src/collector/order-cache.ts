@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 
 import type { CacheStats, OrderData, PrintMeta } from '../config/types.js';
+import { stripEscPosToText } from '../qr/escpos.js';
 import {
   clean,
   displayAliases,
@@ -157,7 +158,20 @@ export class OrderCache {
     this.consolidateCache();
 
     let data = this.findOrderInInvoice(invoice, printMeta);
+    if (!data) {
+      const plain = stripEscPosToText(invoice);
+      if (plain && plain !== invoice) {
+        data = this.findOrderInInvoice(plain, printMeta);
+        if (!data) data = this.extractOrderFromInvoiceText(plain);
+      }
+    }
     if (!data) data = this.extractOrderFromInvoiceText(invoice);
+    if (!data) {
+      const plain = stripEscPosToText(invoice);
+      if (plain && plain !== invoice) {
+        data = this.extractOrderFromInvoiceText(plain);
+      }
+    }
     if (!data) return null;
 
     if (!data.merchantId) {

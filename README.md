@@ -124,12 +124,25 @@ npm run dev
 # Gestor -> Impressora -> "iFood QR Bridge"
 ```
 
-Log ao imprimir no terminal do servico:
+Log ao imprimir:
 
 ```
 [SPOOL] Job de impressao detectado
-[SPOOL] QR adicionado a comanda
-[SPOOL] Comanda encaminhada para impressora
+[PRINT DEBUG] Dump salvo
+```
+
+**Modo debug** — arquivos em `C:\ProgramData\iFoodQrService\spool\debug\`:
+
+| Arquivo | Conteudo |
+|---------|----------|
+| `*-readable.txt` | Texto legivel da comanda (strip ESC/POS) |
+| `*-enriched.txt` | O que vai para a impressora (+ QR se injetado) |
+| `*-raw.bin` | Bytes brutos |
+| `*-meta.json` | Pedido no cache, payload, modified |
+
+```powershell
+curl http://127.0.0.1:7420/print/debug
+curl http://127.0.0.1:7420/diagnostics
 ```
 
 Detalhes: [docs/PRINT-BRIDGE-DRIVER.md](docs/PRINT-BRIDGE-DRIVER.md)

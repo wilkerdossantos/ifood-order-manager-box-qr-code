@@ -218,6 +218,8 @@ if (Test-Path $ConfigPath) {
 $config | Add-Member -NotePropertyName printerName -NotePropertyValue $VirtualPrinterName -Force
 $config | Add-Member -NotePropertyName spoolWatchEnabled -NotePropertyValue $true -Force
 $config | Add-Member -NotePropertyName spoolDir -NotePropertyValue $SpoolDir -Force
+$config | Add-Member -NotePropertyName printDebugEnabled -NotePropertyValue $true -Force
+$config | Add-Member -NotePropertyName printDebugDir -NotePropertyValue (Join-Path $SpoolDir "debug") -Force
 if ($TargetPrinter) {
     $config | Add-Member -NotePropertyName targetPrinterName -NotePropertyValue $TargetPrinter -Force
 }

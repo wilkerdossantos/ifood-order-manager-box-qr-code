@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { generateEscPosQr, injectThermalQr, latin1Encode } from '../../src/qr/escpos.js';
+import { generateEscPosQr, injectThermalQr, latin1Encode, stripEscPosToText } from '../../src/qr/escpos.js';
 import { generateQrPayload } from '../../src/qr/payload.js';
 
 describe('QR Engine', () => {
@@ -23,6 +23,11 @@ describe('QR Engine', () => {
     expect(escpos).toContain('\x1d\x28\x6b');
     expect(escpos).toContain('\x1ba\x01');
     expect(latin1Encode('test')).toBe('test');
+  });
+
+  it('strips ESC/POS control chars for readable text', () => {
+    const raw = '\x1ba\x01PEDIDO: #6798\n\x1ba\x00';
+    expect(stripEscPosToText(raw)).toContain('PEDIDO: #6798');
   });
 
   it('injects thermal QR into invoice', () => {

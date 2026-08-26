@@ -7,28 +7,39 @@ import type { ServiceConfig } from '../config/types.js';
 import type { Logger } from '../utils/logger.js';
 import type { ActivityLog } from '../utils/activity-log.js';
 import type { InvoiceEnricher } from '../qr/invoice-enricher.js';
+import type { OrderCache } from '../collector/order-cache.js';
+import { stripEscPosToText } from '../qr/escpos.js';
+import { extractDisplayIdFromInvoice } from '../utils/strings.js';
 import { forwardRawToPrinter } from './raw-forwarder.js';
+import type { PrintDebugWriter } from './print-debug-writer.js';
 
 export interface SpoolWatcherDiagnostics {
   spoolDir: string;
   spoolFile: string;
+  debugDir: string;
   enabled: boolean;
   jobsProcessed: number;
   lastJobAt: string | null;
   lastError: string | null;
+  lastDebugFiles: Record<string, string> | null;
 }
 
 export class SpoolWatcher {
   private watcher: FSWatcher | null = null;
+  private pollTimer: ReturnType<typeof setInterval> | null = null;
   private processing = false;
   private queue: string[] = [];
   private jobsProcessed = 0;
   private lastJobAt: string | null = null;
   private lastError: string | null = null;
+  private lastDebugFiles: Record<string, string> | null = null;
+  private lastProcessedSize = 0;
 
   constructor(
     private config: ServiceConfig,
+    private cache: OrderCache,
     private enricher: InvoiceEnricher,
+    private debugWriter: PrintDebugWriter,
     private logger: Logger,
     private activity: ActivityLog,
   ) {}
@@ -41,10 +52,12 @@ export class SpoolWatcher {
     return {
       spoolDir: this.config.spoolDir,
       spoolFile: this.getSpoolFile(),
+      debugDir: this.debugWriter.getDebugDir(),
       enabled: this.config.spoolWatchEnabled,
       jobsProcessed: this.jobsProcessed,
       lastJobAt: this.lastJobAt,
       lastError: this.lastError,
+      lastDebugFiles: this.lastDebugFiles,
     };
   }
 
@@ -57,6 +70,7 @@ export class SpoolWatcher {
     const spoolFile = this.getSpoolFile();
 
     fs.mkdirSync(spoolDir, { recursive: true });
+    fs.mkdirSync(this.debugWriter.getDebugDir(), { recursive: true });
     if (!fs.existsSync(spoolFile)) {
       fs.writeFileSync(spoolFile, '');
     }
@@ -66,10 +80,12 @@ export class SpoolWatcher {
       ignoreInitial: true,
       awaitWriteFinish: { stabilityThreshold: 1200, pollInterval: 200 },
       depth: 0,
+      ignored: (p) => p.includes(`${path.sep}debug${path.sep}`),
     });
 
     const enqueue = (filePath: string) => {
       if (!filePath.endsWith('.prn')) return;
+      if (filePath.includes(`${path.sep}debug${path.sep}`)) return;
       if (this.queue.includes(filePath)) return;
       this.queue.push(filePath);
       void this.drainQueue();
@@ -83,14 +99,30 @@ export class SpoolWatcher {
       this.logger.debug('[SPOOL] watcher error', { error: msg });
     });
 
-    this.logger.info('[SPOOL] Watcher ativo (substituto RedMon para Windows 11)', {
+    // Fallback: poll a cada 2s (chokidar as vezes nao dispara no Windows)
+    this.pollTimer = setInterval(() => {
+      try {
+        const stat = fs.statSync(spoolFile);
+        if (stat.size > 0 && stat.size !== this.lastProcessedSize && !this.queue.includes(spoolFile)) {
+          this.logger.debug('[SPOOL] Job detectado via poll', { bytes: stat.size });
+          enqueue(spoolFile);
+        }
+      } catch {
+        // ignore
+      }
+    }, 2000);
+
+    this.logger.info('[SPOOL] Watcher ativo', {
       spoolFile,
+      debugDir: this.debugWriter.getDebugDir(),
       targetPrinter: this.config.targetPrinterName || '(nao configurado)',
       virtualPrinter: this.config.printerName,
+      printDebug: this.config.printDebugEnabled,
     });
   }
 
   stop(): Promise<void> {
+    if (this.pollTimer) clearInterval(this.pollTimer);
     return this.watcher?.close() ?? Promise.resolve();
   }
 
@@ -113,29 +145,55 @@ export class SpoolWatcher {
       const stat = fs.statSync(filePath);
       if (stat.size === 0) return;
 
-      this.logger.info('[SPOOL] Job de impressao detectado', {
-        file: filePath,
-        bytes: stat.size,
-      });
+      this.lastProcessedSize = stat.size;
 
       const raw = fs.readFileSync(filePath);
       const invoice = Buffer.from(raw).toString('latin1');
+      const readable = stripEscPosToText(invoice);
+      const displayId = extractDisplayIdFromInvoice(readable) || extractDisplayIdFromInvoice(invoice);
+
+      this.logger.info('[SPOOL] Job de impressao detectado', {
+        file: filePath,
+        bytes: stat.size,
+        displayId: displayId || 'N/A',
+        cacheOrders: this.cache.getStats().uniqueOrders,
+      });
 
       const target = this.config.targetPrinterName;
       const detail = await this.enricher.enrichInvoiceDetailed(invoice, {
         printerName: target || this.config.printerName,
+        savePreview: true,
       });
+
+      const debugEntry = this.debugWriter.saveJob('spool', invoice, detail, {
+        displayIdFromReadable: displayId,
+        readableLength: readable.length,
+        cacheStats: this.cache.getStats(),
+        targetPrinter: target,
+      });
+
+      if (debugEntry) {
+        this.lastDebugFiles = {
+          readable: debugEntry.readablePath,
+          enriched: debugEntry.enrichedPath,
+          raw: debugEntry.rawPath,
+          meta: debugEntry.metaPath,
+        };
+      }
 
       if (detail.modified && detail.order) {
         this.activity.printEnriched(detail.order.displayId, detail.payload || '');
         this.logger.info('[SPOOL] QR adicionado a comanda', {
           pedido: detail.order.displayId,
           pdfMode: detail.pdfMode,
-          preview: detail.previewPath,
+          debug: debugEntry?.readablePath,
         });
       } else {
-        this.logger.warn('[SPOOL] Comanda nao modificada - pedido fora do cache?', {
-          dica: 'Confirme CDP capturando pedidos antes de imprimir',
+        this.logger.warn('[SPOOL] Comanda NAO modificada', {
+          displayIdExtraido: displayId || 'N/A',
+          pedidosNoCache: this.cache.getStats().uniqueOrders,
+          dica: 'Veja o txt em print-debug. Confirme CDP capturando pedidos.',
+          debug: debugEntry?.readablePath,
         });
       }
 
@@ -151,14 +209,18 @@ export class SpoolWatcher {
 
       this.jobsProcessed += 1;
       this.lastJobAt = new Date().toISOString();
-      this.lastError = null;
+      if (target && !this.lastError) {
+        this.lastError = null;
+      }
 
       try {
         fs.truncateSync(filePath, 0);
+        this.lastProcessedSize = 0;
       } catch {
         try {
           fs.unlinkSync(filePath);
           fs.writeFileSync(filePath, '');
+          this.lastProcessedSize = 0;
         } catch {
           // ignore
         }

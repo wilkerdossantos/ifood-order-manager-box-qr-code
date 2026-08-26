@@ -7,6 +7,7 @@ import { ProxyInterceptor } from '../collector/proxy-interceptor.js';
 import { loadConfig, getDataDir } from '../config/index.js';
 import { PrintBridgeServer } from '../print/bridge-server.js';
 import { PrintPreviewWriter } from '../print/preview-writer.js';
+import { PrintDebugWriter } from '../print/print-debug-writer.js';
 import { SpoolWatcher } from '../print/spool-watcher.js';
 import { InvoiceEnricher } from '../qr/invoice-enricher.js';
 import { ActivityLog } from '../utils/activity-log.js';
@@ -20,6 +21,7 @@ export class QrService {
   private activity = new ActivityLog(this.logger);
   private cache = new OrderCache(this.config.cachePath);
   private previewWriter = new PrintPreviewWriter(this.config, this.logger);
+  private debugWriter = new PrintDebugWriter(this.config, this.logger);
   private enricher = new InvoiceEnricher(this.cache, this.config, this.previewWriter);
   private proxy = new ProxyInterceptor({
     config: this.config,
@@ -49,7 +51,9 @@ export class QrService {
   );
   private spoolWatcher = new SpoolWatcher(
     this.config,
+    this.cache,
     this.enricher,
+    this.debugWriter,
     this.logger,
     this.activity,
   );
@@ -67,6 +71,7 @@ export class QrService {
       cdpEnabled: this.config.cdpEnabled,
       cdpTargets: this.cdpCollector.getAvailableTargets(),
       printPreviewDir: this.previewWriter.getPreviewDir(),
+      printDebugDir: this.debugWriter.getDebugDir(),
       spool: this.spoolWatcher.getDiagnostics(),
     }),
   });

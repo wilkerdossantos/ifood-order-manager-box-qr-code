@@ -1,4 +1,5 @@
 import http from 'node:http';
+import path from 'node:path';
 import { URL } from 'node:url';
 
 import type { ServiceConfig } from '../config/types.js';
@@ -90,6 +91,19 @@ export class HttpApi {
 
     if (method === 'GET' && url.pathname === '/orders') {
       return this.json(res, 200, { orders: this.options.cache.getAllOrders() });
+    }
+
+    if (method === 'GET' && url.pathname === '/print/debug') {
+      const debugDir =
+        this.options.config.printDebugDir ||
+        path.join(this.options.config.spoolDir, 'debug');
+      return this.json(res, 200, {
+        enabled: this.options.config.printDebugEnabled,
+        debugDir,
+        dica: 'Abra *-readable.txt e *-enriched.txt apos cada impressao',
+        cache: this.options.cache.getStats(),
+        orders: this.options.cache.getAllOrders(),
+      });
     }
 
     if (method === 'GET' && url.pathname === '/diagnostics') {

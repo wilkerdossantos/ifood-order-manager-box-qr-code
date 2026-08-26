@@ -42,6 +42,9 @@ export interface ServiceConfig {
   /** Monitora pasta spool da impressora virtual (substituto RedMon no Windows 11) */
   spoolWatchEnabled: boolean;
   spoolDir: string;
+  /** Salva txt/bin de cada job para debug (spool/debug/) */
+  printDebugEnabled: boolean;
+  printDebugDir: string;
 }
 
 export const DEFAULT_CONFIG: ServiceConfig = {
@@ -75,6 +78,8 @@ export const DEFAULT_CONFIG: ServiceConfig = {
   printPreviewDir: '',
   spoolWatchEnabled: true,
   spoolDir: '',
+  printDebugEnabled: true,
+  printDebugDir: '',
 };
 
 export interface PrintMeta {
