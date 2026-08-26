@@ -39,6 +39,19 @@ describe('InvoiceEnricher', () => {
     expect(enriched.length).toBeGreaterThan(invoiceSample.length);
   });
 
+  it('uses pdf mode when target printer is PDF (bridge sem PDF no nome)', async () => {
+    const pdfTarget = new InvoiceEnricher(cache, {
+      ...config,
+      targetPrinterName: 'Microsoft Print to PDF',
+    });
+    const enriched = await pdfTarget.enrichInvoice(invoiceSample, {
+      printerName: 'iFood QR Bridge',
+    });
+    expect(enriched).toContain('QR:');
+    expect(enriched).toContain('LOJA:');
+    expect(enriched).not.toContain('\x1d(');
+  });
+
   it('uses readable text for PDF printers', async () => {
     const enriched = await enricher.enrichInvoice(invoiceSample, {
       printerName: 'Microsoft Print to PDF',

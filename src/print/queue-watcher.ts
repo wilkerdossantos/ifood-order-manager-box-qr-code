@@ -29,6 +29,8 @@ export class PrintQueueWatcher {
   private pollTimer: ReturnType<typeof setInterval> | null = null;
   private processing = false;
   private seenJobIds = new Set<number>();
+  private retryCounts = new Map<number, number>();
+  private readonly maxRetries = 5;
   private jobsProcessed = 0;
   private lastJobAt: string | null = null;
   private lastError: string | null = null;
@@ -68,7 +70,7 @@ export class PrintQueueWatcher {
 
     this.pollTimer = setInterval(() => {
       void this.pollJobs();
-    }, 1500);
+    }, 400);
 
     this.logger.info('[QUEUE] Watcher de fila ativo', {
       printer: this.config.printerName,
@@ -91,8 +93,18 @@ export class PrintQueueWatcher {
     const jobs = this.listJobs();
     for (const job of jobs) {
       if (this.seenJobIds.has(job.Id)) continue;
-      this.seenJobIds.add(job.Id);
-      await this.processJob(job);
+      const ok = await this.processJob(job);
+      if (ok) {
+        this.seenJobIds.add(job.Id);
+        this.retryCounts.delete(job.Id);
+      } else {
+        const tries = (this.retryCounts.get(job.Id) || 0) + 1;
+        this.retryCounts.set(job.Id, tries);
+        if (tries >= this.maxRetries) {
+          this.seenJobIds.add(job.Id);
+          this.logger.error('[QUEUE] Job abandonado apos tentativas', { jobId: job.Id, tries });
+        }
+      }
     }
   }
 
@@ -118,7 +130,7 @@ export class PrintQueueWatcher {
     }
   }
 
-  private async processJob(job: PrintJobInfo): Promise<void> {
+  private async processJob(job: PrintJobInfo): Promise<boolean> {
     this.processing = true;
 
     const tmpRaw = path.join(
@@ -165,13 +177,13 @@ export class PrintQueueWatcher {
           error: this.lastError,
           hint: 'Execute o servico como Administrador',
         });
-        return;
+        return false;
       }
 
       if (!fs.existsSync(tmpRaw) || fs.statSync(tmpRaw).size === 0) {
         this.lastError = 'Arquivo capturado vazio';
         this.logger.warn('[QUEUE] Job capturado vazio', { jobId: job.Id });
-        return;
+        return false;
       }
 
       const invoice = this.handler.readInvoiceFromFile(tmpRaw);
@@ -191,9 +203,11 @@ export class PrintQueueWatcher {
       this.jobsProcessed += 1;
       this.lastJobAt = new Date().toISOString();
       this.lastError = handled.forwarded || !this.config.targetPrinterName ? null : 'Falha ao encaminhar';
+      return true;
     } catch (err) {
       this.lastError = err instanceof Error ? err.message : String(err);
       this.logger.error('[QUEUE] Erro ao processar job', { jobId: job.Id, error: this.lastError });
+      return false;
     } finally {
       try {
         fs.unlinkSync(tmpRaw);

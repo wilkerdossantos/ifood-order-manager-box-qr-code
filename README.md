@@ -108,45 +108,44 @@ Arquivo: `%ProgramData%\iFoodQrService\config.json`
 | `/print` | POST | Enriquece body JSON de print (compatível extensão) |
 | `/config/ca-cert` | GET | Download certificado CA |
 
-## Impressora virtual (Windows 11, sem RedMon)
+## Impressora virtual (Windows 11) — PORTPROMPT + PDF
 
-Dois modos de interceptacao:
+**No Windows 11 a porta arquivo (`output.prn`) costuma falhar.** Use a configuracao que funciona no seu PC:
 
-| Modo | Porta / Driver | Como intercepta |
-|------|----------------|-----------------|
-| **Arquivo** (ideal) | Local `output.prn` + Generic/Text | SpoolWatcher monitora arquivo |
-| **PORTPROMPT + PDF** (Windows 11) | PORTPROMPT + Microsoft Print to PDF | **QueueWatcher** monitora fila Windows |
+| Campo | Valor |
+|-------|-------|
+| Porta | **PORTPROMPT** |
+| Driver | **Microsoft Print to PDF** |
+| Nome | **iFood QR Bridge** |
 
-```
-Gestor -> "iFood QR Bridge" -> [QUEUE] captura SPL -> enriquece -> impressora destino
-```
+O servico intercepta pela **fila Windows** (nao pelo arquivo).
 
 ```powershell
-# PowerShell Admin (obrigatorio para ler spool do Windows)
-npm run install:virtual-printer -- -TargetPrinter "Microsoft Print to PDF" -UsePortPrompt
-npm run dev
+# PowerShell Admin — so atualiza config (impressora ja criada manualmente)
+npm run configure:portprompt
 
-# Gestor -> Impressora -> "iFood QR Bridge"
+npm run build
+npm run enable:gestor   # CDP + hook de impressao no Gestor
+npm run dev             # Admin obrigatorio
 ```
-
-Se voce ja criou a impressora manualmente (PORTPROMPT + PDF), basta garantir no config:
 
 ```json
 {
   "printQueueWatchEnabled": true,
+  "spoolWatchEnabled": false,
   "targetPrinterName": "Microsoft Print to PDF"
 }
 ```
 
-Log ao imprimir:
+### Duas formas de injetar QR (use as duas)
 
-```
-[QUEUE] Job de impressao detectado
-[PRINT DEBUG] Dump salvo
-[PRINT] Comanda encaminhada (TEXT)
-```
+1. **CDP no Gestor** (melhor) — intercepta antes de imprimir; QR em texto legivel para PDF
+2. **Fila Windows `[QUEUE]`** (backup) — captura job na Bridge, cancela PDF quebrado, reimprime enriquecido
 
-**Importante:** com destino PDF, o QR vai como **texto legivel** (nao ESC/POS binario) — PDF abre normalmente.
+Log CDP: `[CDP] Impressao interceptada` → `[CDP] QR adicionado`  
+Log fila: `[QUEUE] Job de impressao detectado` → `[PRINT DEBUG] Dump salvo`
+
+**Nao mude para porta arquivo** se da erro no Gestor — e esperado no Win11.
 
 **Modo debug** — arquivos em `C:\ProgramData\iFoodQrService\spool\debug\`:
 

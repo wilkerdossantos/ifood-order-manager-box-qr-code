@@ -9,10 +9,10 @@
 #>
 
 param(
-    [string]$TargetPrinter = "",
+    [string]$TargetPrinter = "Microsoft Print to PDF",
     [string]$VirtualPrinterName = "iFood QR Bridge",
-    [string]$DriverName = "",
-    [switch]$UsePortPrompt
+    [string]$DriverName = "Microsoft Print To PDF",
+    [switch]$UseFilePort
 )
 
 $ErrorActionPreference = "Continue"
@@ -229,7 +229,7 @@ if (Test-Path $ConfigPath) {
 }
 
 $config | Add-Member -NotePropertyName printerName -NotePropertyValue $VirtualPrinterName -Force
-$config | Add-Member -NotePropertyName spoolWatchEnabled -NotePropertyValue $true -Force
+$config | Add-Member -NotePropertyName spoolWatchEnabled -NotePropertyValue $false -Force
 $config | Add-Member -NotePropertyName spoolDir -NotePropertyValue $SpoolDir -Force
 $config | Add-Member -NotePropertyName printDebugEnabled -NotePropertyValue $true -Force
 $config | Add-Member -NotePropertyName printDebugDir -NotePropertyValue (Join-Path $SpoolDir "debug") -Force
@@ -259,15 +259,17 @@ if ($existing) {
     }
     $printerOk = $true
 } else {
-    if ($UsePortPrompt -or $DriverName -match "PDF") {
-        $printerOk = New-VirtualPrinter -Name $VirtualPrinterName -PortName "PORTPROMPT:" -ForceDriver $DriverName -PortPrompt
-        if ($printerOk) {
-            Write-Host "Impressora OK: $VirtualPrinterName (PORTPROMPT + PDF)" -ForegroundColor Green
-        }
-    } else {
+    if ($UseFilePort) {
         $printerOk = New-VirtualPrinter -Name $VirtualPrinterName -PortName $SpoolFile -ForceDriver $DriverName
         if ($printerOk) {
             Write-Host "Impressora OK: $VirtualPrinterName -> $SpoolFile" -ForegroundColor Green
+            $config | Add-Member -NotePropertyName spoolWatchEnabled -NotePropertyValue $true -Force
+            $config | ConvertTo-Json -Depth 10 | Set-Content $ConfigPath -Encoding UTF8
+        }
+    } else {
+        $printerOk = New-VirtualPrinter -Name $VirtualPrinterName -PortName "PORTPROMPT:" -ForceDriver $DriverName -PortPrompt
+        if ($printerOk) {
+            Write-Host "Impressora OK: $VirtualPrinterName (PORTPROMPT + PDF)" -ForegroundColor Green
         }
     }
 }

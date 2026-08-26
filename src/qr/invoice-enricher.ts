@@ -122,6 +122,9 @@ export class InvoiceEnricher {
   private shouldUsePdfSafeMode(options: EnrichOptions): boolean {
     if (this.config.pdfMode || options.pdfMode) return true;
     const printer = String(options.printerName || '').toUpperCase();
-    return printer === 'PDF' || printer.includes('PDF');
+    if (printer === 'PDF' || printer.includes('PDF')) return true;
+    // Bridge "iFood QR Bridge" + driver PDF nao tem "PDF" no nome da impressora
+    const target = String(this.config.targetPrinterName || '').toUpperCase();
+    return target.includes('PDF');
   }
 }

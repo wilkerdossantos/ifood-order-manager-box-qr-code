@@ -78,7 +78,7 @@ export const DEFAULT_CONFIG: ServiceConfig = {
   cdpReconnectSeconds: 8,
   printPreviewEnabled: true,
   printPreviewDir: '',
-  spoolWatchEnabled: true,
+  spoolWatchEnabled: false,
   spoolDir: '',
   printDebugEnabled: true,
   printDebugDir: '',

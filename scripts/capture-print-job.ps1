@@ -1,10 +1,7 @@
 #Requires -Version 5.1
 <#
 .SYNOPSIS
-    Captura bytes RAW de um job na fila Windows, cancela o job e grava em arquivo.
-
-.NOTES
-    Requer PowerShell Admin (leitura de C:\Windows\System32\spool\PRINTERS).
+    Captura bytes de job na fila Windows (PORTPROMPT + PDF), cancela e grava arquivo.
 #>
 param(
     [Parameter(Mandatory = $true)][string]$PrinterName,
@@ -34,7 +31,8 @@ function Find-SplForJob {
         }
 
         $unicode = [System.Text.Encoding]::Unicode.GetString($bytes)
-        if ($unicode -notlike "*$Printer*") {
+        $ascii = [System.Text.Encoding]::ASCII.GetString($bytes)
+        if ($unicode -notlike "*$Printer*" -and $ascii -notlike "*$Printer*") {
             continue
         }
 
@@ -56,7 +54,6 @@ function Find-SplForJob {
 
         $candidates += [PSCustomObject]@{
             SplPath   = $spl
-            ShdPath   = $shd.FullName
             JobMatch  = $jobMatch
             WriteTime = (Get-Item $spl).LastWriteTime
             Size      = (Get-Item $spl).Length
@@ -72,8 +69,25 @@ function Find-SplForJob {
         return $matched[0].SplPath
     }
 
-    $recent = @($candidates | Sort-Object WriteTime -Descending)
-    return $recent[0].SplPath
+    return ($candidates | Sort-Object WriteTime -Descending | Select-Object -First 1).SplPath
+}
+
+function Find-BytePattern {
+    param(
+        [byte[]]$Bytes,
+        [byte[]]$Pattern
+    )
+    for ($i = 0; $i -le ($Bytes.Length - $Pattern.Length); $i++) {
+        $ok = $true
+        for ($j = 0; $j -lt $Pattern.Length; $j++) {
+            if ($Bytes[$i + $j] -ne $Pattern[$j]) {
+                $ok = $false
+                break
+            }
+        }
+        if ($ok) { return $i }
+    }
+    return -1
 }
 
 function Extract-RawPayload {
@@ -83,14 +97,21 @@ function Extract-RawPayload {
         return $Bytes
     }
 
-    # ESC/POS: comeca em ESC (0x1B)
+    # Marcadores comuns em comandas iFood
+    foreach ($marker in @('PEDIDO', 'COMANDA', 'iFood', 'IFOOD')) {
+        $idx = Find-BytePattern -Bytes $Bytes -Pattern ([System.Text.Encoding]::ASCII.GetBytes($marker))
+        if ($idx -ge 0) {
+            $start = [Math]::Max(0, $idx - 64)
+            return $Bytes[$start..($Bytes.Length - 1)]
+        }
+    }
+
     for ($i = 0; $i -lt ($Bytes.Length - 4); $i++) {
         if ($Bytes[$i] -eq 0x1B) {
             return $Bytes[$i..($Bytes.Length - 1)]
         }
     }
 
-    # Texto ASCII legivel
     for ($i = 0; $i -lt ($Bytes.Length - 8); $i++) {
         if ($Bytes[$i] -ge 0x20 -and $Bytes[$i] -le 0x7E) {
             $run = 0
@@ -108,7 +129,6 @@ function Extract-RawPayload {
         }
     }
 
-    # Cabecalho SPL tipico: pular bloco inicial
     foreach ($skip in @(512, 1024, 2048, 4096)) {
         if ($Bytes.Length -gt ($skip + 64)) {
             return $Bytes[$skip..($Bytes.Length - 1)]
@@ -118,13 +138,25 @@ function Extract-RawPayload {
     return $Bytes
 }
 
-Start-Sleep -Milliseconds 600
+try {
+    Suspend-Printer -Name $PrinterName -ErrorAction SilentlyContinue | Out-Null
+} catch { }
 
-$splPath = Find-SplForJob -Printer $PrinterName -Id $JobId
+$splPath = $null
+for ($attempt = 1; $attempt -le 8; $attempt++) {
+    Start-Sleep -Milliseconds 350
+    $splPath = Find-SplForJob -Printer $PrinterName -Id $JobId
+    if ($splPath) { break }
+}
+
+try {
+    Resume-Printer -Name $PrinterName -ErrorAction SilentlyContinue | Out-Null
+} catch { }
+
 if (-not $splPath) {
     @{
         ok    = $false
-        error = "SPL nao encontrado para job $JobId em $PrinterName"
+        error = "SPL nao encontrado para job $JobId em $PrinterName (Admin?)"
     } | ConvertTo-Json -Compress
     exit 1
 }
@@ -146,12 +178,12 @@ try {
 }
 
 @{
-    ok         = $true
-    rawPath    = $OutputPath
-    splPath    = $splPath
-    bytes      = $rawBytes.Length
-    splBytes   = $splBytes.Length
-    cancelled  = $cancelled
-    printer    = $PrinterName
-    jobId      = $JobId
+    ok        = $true
+    rawPath   = $OutputPath
+    splPath   = $splPath
+    bytes     = $rawBytes.Length
+    splBytes  = $splBytes.Length
+    cancelled = $cancelled
+    printer   = $PrinterName
+    jobId     = $JobId
 } | ConvertTo-Json -Compress
