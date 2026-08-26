@@ -108,9 +108,48 @@ Arquivo: `%ProgramData%\iFoodQrService\config.json`
 | `/print` | POST | Enriquece body JSON de print (compatível extensão) |
 | `/config/ca-cert` | GET | Download certificado CA |
 
-## Impressão no Gestor Desktop
+## Impressão via impressora virtual (recomendado para produção)
 
-O Gestor envia a comanda via IPC `printOrder`. O serviço **intercepta essa chamada pelo CDP**, adiciona o QR e só então manda imprimir.
+Abordagem estável para totem — **sem modificar atalho do Gestor**:
+
+```
+Gestor → "iFood QR Bridge" (virtual) → print-port-receiver.js → serviço :7420 → impressora física
+```
+
+```powershell
+# Instalar impressora virtual + configurar destino
+.\scripts\install-virtual-printer.ps1 -TargetPrinter "Microsoft Print to PDF"
+
+# No Gestor: selecionar impressora "iFood QR Bridge"
+```
+
+Detalhes: [docs/PRINT-BRIDGE-DRIVER.md](docs/PRINT-BRIDGE-DRIVER.md)
+
+---
+
+## Impressão via hook do Gestor (alternativa dev)
+
+O Gestor envia a comanda via IPC `printOrder` **no processo principal** — o hook CDP no renderer sozinho não basta (o app cacheia referências do IPC antes da injeção).
+
+### Configuração (obrigatória para impressão)
+
+```powershell
+# 1. Serviço rodando
+npm run dev
+
+# 2. Recria atalho do Gestor com hook de impressão + CDP
+.\scripts\enable-gestor-debug.ps1
+
+# 3. Feche o Gestor e abra pelo atalho *.ifood-qr.lnk
+```
+
+No console do Gestor, ao imprimir:
+
+```
+[iFood QR] print-main-hook.cjs carregado
+[iFood QR] Impressão interceptada → Microsoft Print to PDF
+[iFood QR] QR adicionado — LOJA:...|NP:6798|...
+```
 
 ### Testar com Microsoft Print to PDF (sem impressora térmica)
 

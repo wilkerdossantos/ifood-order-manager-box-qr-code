@@ -41,6 +41,7 @@ if (Test-Path $InstallDir) {
 }
 New-Item -ItemType Directory -Path $InstallDir -Force | Out-Null
 Copy-Item -Recurse "$ProjectRoot\dist" "$InstallDir\dist"
+Copy-Item -Recurse "$ProjectRoot\scripts" "$InstallDir\scripts"
 Copy-Item "$ProjectRoot\package.json" "$InstallDir\"
 Copy-Item "$ProjectRoot\package-lock.json" "$InstallDir\" -ErrorAction SilentlyContinue
 Push-Location $InstallDir

@@ -373,24 +373,50 @@ export class CdpCollector {
       (function() {
         if (window.__ifoodQrPrintHooked) return;
         try {
-          var electron = window.require('electron');
-          var origSend = electron.ipcRenderer.send.bind(electron.ipcRenderer);
-          window.__ifoodQrOrigIpcSend = origSend;
-          window.__ifoodQrPrintQueue = window.__ifoodQrPrintQueue || [];
+          if (typeof window.require !== 'function') {
+            window.__ifoodQrPrintHookError = 'window.require indisponível';
+            return;
+          }
 
-          electron.ipcRenderer.send = function(channel) {
-            var args = Array.prototype.slice.call(arguments, 1);
-            if (channel === 'printOrder' && typeof args[0] === 'string') {
-              window.__ifoodQrPrintQueue.push({
-                invoice: args[0],
-                printerName: args[1] || '',
-                restArgs: args.slice(1),
-                at: Date.now()
-              });
-              return;
-            }
-            return origSend.apply(null, [channel].concat(args));
-          };
+          function queuePrint(args) {
+            window.__ifoodQrPrintQueue = window.__ifoodQrPrintQueue || [];
+            window.__ifoodQrPrintQueue.push({
+              invoice: args[0],
+              printerName: args[1] || '',
+              restArgs: args.slice(1),
+              at: Date.now()
+            });
+          }
+
+          function wrapIpcSend(ipc, origSend) {
+            return function(channel) {
+              var args = Array.prototype.slice.call(arguments, 1);
+              if (channel === 'printOrder' && typeof args[0] === 'string') {
+                queuePrint(args);
+                return;
+              }
+              return origSend.apply(ipc, [channel].concat(args));
+            };
+          }
+
+          function wrapChannelMethod(ipc, methodName) {
+            var orig = ipc[methodName].bind(ipc);
+            return function(channel) {
+              var args = Array.prototype.slice.call(arguments, 1);
+              if (channel === 'printOrder' && typeof args[0] === 'string') {
+                queuePrint(args);
+                return;
+              }
+              return orig.apply(ipc, [channel].concat(args));
+            };
+          }
+
+          var electron = window.require('electron');
+          var ipc = electron.ipcRenderer;
+          window.__ifoodQrOrigIpcSend = ipc.send.bind(ipc);
+          ipc.send = wrapIpcSend(ipc, window.__ifoodQrOrigIpcSend);
+          ipc.sendSync = wrapChannelMethod(ipc, 'sendSync');
+          ipc.invoke = wrapChannelMethod(ipc, 'invoke');
 
           window.__ifoodQrPrintHooked = true;
         } catch (e) {
@@ -400,7 +426,26 @@ export class CdpCollector {
     `;
     await this.send('Runtime.evaluate', { expression: script });
     await this.send('Page.addScriptToEvaluateOnNewDocument', { source: script });
-    this.logger.info('[CDP] Hook de impressão instalado (printOrder via IPC)');
+
+    const status = (await this.send('Runtime.evaluate', {
+      expression: `({
+        hooked: !!window.__ifoodQrPrintHooked,
+        error: window.__ifoodQrPrintHookError || null,
+        requireType: typeof window.require
+      })`,
+      returnByValue: true,
+    })) as { result?: { value?: { hooked?: boolean; error?: string | null } } };
+
+    const hooked = status?.result?.value?.hooked;
+    const error = status?.result?.value?.error;
+    if (hooked) {
+      this.logger.info('[CDP] Hook renderer instalado (fallback — use print-main-hook.cjs para impressão)');
+    } else {
+      this.logger.warn('[CDP] Hook renderer falhou — impressão depende de print-main-hook.cjs', {
+        error: error || 'desconhecido',
+        dica: 'Execute .\\scripts\\enable-gestor-debug.ps1 e abra o atalho *.ifood-qr.lnk',
+      });
+    }
   }
 
   private async handleResponseReceived(params: Record<string, unknown>): Promise<void> {
