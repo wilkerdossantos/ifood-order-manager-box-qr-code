@@ -15,6 +15,27 @@ const LOG_FILE = path.join(
   "logs",
   "print-hook.log",
 );
+const DUMP_FILE = path.join(
+  process.env.ProgramData || "C:\\ProgramData",
+  "iFoodQrService",
+  "logs",
+  "print-hook-dump.json",
+);
+
+function dumpRawInvoice(invoice, printerName) {
+  try {
+    fs.mkdirSync(path.dirname(DUMP_FILE), { recursive: true });
+    const payload = {
+      at: new Date().toISOString(),
+      printerName: printerName || "",
+      kind: Array.isArray(invoice) ? `array:${invoice.length}` : typeof invoice,
+      value: invoice,
+    };
+    fs.writeFileSync(DUMP_FILE, JSON.stringify(payload, null, 2), "utf-8");
+  } catch {
+    // ignore
+  }
+}
 const require = createRequire(import.meta.url);
 const { enrichWithRetry, extractTextFromInvoice: extractFromClient } = require(
   path.join(SCRIPTS_DIR, "enrich-client.cjs"),
@@ -68,6 +89,7 @@ function appendQrToEscPosArray(invoice, payload, pdfMode) {
 export async function enrichPrintInvoiceAsync(invoice, printerName) {
   const kind = Array.isArray(invoice) ? `array:${invoice.length}` : typeof invoice;
   logHook(`[iFood QR] print recebido kind=${kind} printer=${printerName || "?"}`);
+  dumpRawInvoice(invoice, printerName);
 
   const lookupText = extractTextFromInvoice(invoice);
   if (!lookupText.trim()) {
