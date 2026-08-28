@@ -11,7 +11,7 @@
     "stop": "powershell -ExecutionPolicy Bypass -File scripts/stop-dev.ps1",
     "enable:gestor": "powershell -ExecutionPolicy Bypass -File scripts/enable-gestor-debug.ps1",
     "install:virtual-printer": "powershell -ExecutionPolicy Bypass -File scripts/install-virtual-printer.ps1",
-    "configure:portprompt": "powershell -ExecutionPolicy Bypass -File scripts/configure-portprompt-mode.ps1",
+    "configure:bridge": "powershell -ExecutionPolicy Bypass -File scripts/configure-bridge.ps1",
     "test:service": "node scripts/test-service.js",
     "test": "vitest run",
     "test:watch": "vitest"

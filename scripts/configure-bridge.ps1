@@ -1,17 +1,17 @@
 #Requires -Version 5.1
 <#
 .SYNOPSIS
-    Configura o servico para o modo de captura via fila Windows (PORTPROMPT).
+    Configura o servico para o modo de captura via impressora virtual (porta FILE:).
 
 .DESCRIPTION
     Atualiza %ProgramData%\iFoodQrService\config.json para habilitar o
-    queue-watcher (printQueueWatchEnabled) e definir a impressora virtual
+    file-watcher (printFileWatchEnabled) e definir a impressora virtual
     de captura (printerName) e a impressora fisica de destino
     (targetPrinterName).
 
 .EXAMPLE
-    .\configure-portprompt-mode.ps1
-    .\configure-portprompt-mode.ps1 -VirtualPrinterName "iFood QR Bridge" -TargetPrinter "EPSON TM-T20"
+    .\configure-bridge.ps1
+    .\configure-bridge.ps1 -VirtualPrinterName "iFood QR Bridge" -TargetPrinter "EPSON TM-T20"
 #>
 param(
     [string]$VirtualPrinterName = "iFood QR Bridge",
@@ -22,7 +22,7 @@ $ConfigPath = "$env:ProgramData\iFoodQrService\config.json"
 $SpoolDir = "$env:ProgramData\iFoodQrService\spool"
 
 Write-Host ""
-Write-Host "=== iFood QR - modo PORTPROMPT + fila raw ===" -ForegroundColor Cyan
+Write-Host "=== iFood QR - modo impressora virtual (porta FILE:) ===" -ForegroundColor Cyan
 Write-Host ""
 
 # Valida impressora virtual.
@@ -37,6 +37,9 @@ else {
     Write-Host "  Driver: $($printer.DriverName)"
     if ($printer.DriverName -notlike "*Generic*" -and $printer.DriverName -notlike "*Text*") {
         Write-Host "  AVISO: driver nao e Generic/Text Only - SPL pode vir como EMF e nao raw." -ForegroundColor Yellow
+    }
+    if ($printer.PortName -notlike "*.prn" -and $printer.PortName -notlike "*.txt") {
+        Write-Host "  AVISO: porta nao e de arquivo (.prn/.txt) - use install-virtual-printer.ps1." -ForegroundColor Yellow
     }
 }
 
@@ -62,7 +65,7 @@ else {
 
 $config | Add-Member -NotePropertyName printerName -NotePropertyValue $VirtualPrinterName -Force
 $config | Add-Member -NotePropertyName targetPrinterName -NotePropertyValue $TargetPrinter -Force
-$config | Add-Member -NotePropertyName printQueueWatchEnabled -NotePropertyValue $true -Force
+$config | Add-Member -NotePropertyName printFileWatchEnabled -NotePropertyValue $true -Force
 $config | Add-Member -NotePropertyName printDebugEnabled -NotePropertyValue $true -Force
 $config | Add-Member -NotePropertyName spoolDir -NotePropertyValue $SpoolDir -Force
 $config | Add-Member -NotePropertyName printDebugDir -NotePropertyValue (Join-Path $SpoolDir "debug") -Force
@@ -71,12 +74,12 @@ $config | ConvertTo-Json -Depth 10 | Set-Content $ConfigPath -Encoding UTF8
 
 Write-Host ""
 Write-Host "Config atualizado: $ConfigPath" -ForegroundColor Green
-Write-Host "  printQueueWatchEnabled = true   (intercepta fila Windows)"
-Write-Host "  printerName            = $VirtualPrinterName"
-Write-Host "  targetPrinterName      = $TargetPrinter"
+Write-Host "  printFileWatchEnabled = true   (monitora output.prn)"
+Write-Host "  printerName           = $VirtualPrinterName"
+Write-Host "  targetPrinterName     = $TargetPrinter"
 Write-Host ""
 Write-Host "Proximo passo:" -ForegroundColor Cyan
 Write-Host "  1. PowerShell Admin: npm run dev"
 Write-Host "  2. No Gestor: imprima na impressora virtual '$VirtualPrinterName'"
-Write-Host "  3. O servico captura, injeta QR e reencaminha para '$TargetPrinter'"
+Write-Host "  3. O servico captura output.prn, injeta QR e reencaminha para '$TargetPrinter'"
 Write-Host ""

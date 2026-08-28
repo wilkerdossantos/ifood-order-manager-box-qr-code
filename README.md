@@ -6,8 +6,8 @@ Serviço Windows que captura dados de pedidos do **Gestor de Pedidos Desktop** (
 
 1. **Captura pedidos** via CDP multi-target na porta debug do Gestor (9222)
 2. **Mantém cache** JSON com dedup e TTL (`cache.json`) — campos do QR: `merchantId`, `displayId`, `pickupCode`, `orderType`, `orderId`
-3. **Enriquece comandas** via hook no `thermal-printer.print` do Gestor (main process) — sem RedMon, sem impressora virtual
-4. **Roda como serviço Windows** com auto-start
+3. **Enriquece comandas** interceptando o spool da impressora virtual — injeta o QR no stream raw ESC/POS
+4. **Reencaminha** para a impressora térmica física (ou PDF no teste)
 
 ### Payload do QR
 
@@ -21,25 +21,29 @@ LOJA:{merchantId}|NP:{displayId}|CR:{pickupCode}|TIPO:{orderType}|ID:{orderId}
 Gestor Desktop (Electron) — porta debug 9222
     │
     ├── CDP Network + fetch/XHR hooks ──► Order Cache
-    └── ipcHandler.js ──► thermal-printer.print (patch) ──► + QR ──► Impressora
+    │
+    └── imprime em "iFood QR Bridge" (impressora virtual)
+              │
+              ▼
+        porta FILE: → spool/output.prn (stream ESC/POS raw)
+              │
+              ▼
+        file-watcher detecta o arquivo
+              │
+              ├── extrai displayId do texto ("PEDIDO: #0011")
+              ├── consulta o cache (CDP) → gera o payload do QR
+              ├── injeta o QR ESC/POS no stream
+              └── reencaminha p/ impressora física (raw) ou PDF (texto)
 ```
-
-Dois componentes distintos que se encontram no fluxo de impressão:
-
-1. **Order Tracker** — captura pedidos do Gestor via CDP (porta 9222), persiste em cache JSON e expõe os dados na API local (`GET /orders`, `GET /orders/:displayId`).
-
-2. **Print Hook** — intercepta `thermal-printer.print` no processo principal do Electron (`gestor-ipc-print-hook.mjs`), consulta a API local, injeta QR e imprime na impressora **direta** (física ou Print to PDF).
-
-Documentação completa: **[docs/](docs/README.md)** — ADRs e especificações (ver `docs/spec/gestor-desktop-integration.md`).
 
 ## Requisitos
 
 - Windows 10/11
-- Node.js 18+ (para instalação/build)
+- Node.js 18+
 - Gestor de Pedidos Desktop instalado
-- Impressora térmica ESC/POS (ou Microsoft Print to PDF para teste)
+- Impressora térmica ESC/POS (EPSON/Elgin/Daruma) — ou Microsoft Print to PDF para teste
 
-## Instalação (Gestor Desktop)
+## Instalação
 
 ```powershell
 # 1. Clone e instale
@@ -48,25 +52,28 @@ cd ifood-order-manager-box-qr-code
 npm install
 npm run build
 
-# 2. Habilitar CDP + hook de impressão no Gestor
+# 2. Habilitar o CDP (atalho do Gestor com porta debug)
 .\scripts\enable-gestor-debug.ps1
-# Feche o Gestor e abra pelo atalho *.ifood-qr.lnk
 
-# 3. Rode o serviço
+# 3. Instalar a impressora virtual (driver Generic/Text Only + porta FILE:)
+.\scripts\install-virtual-printer.ps1
+
+# 4. Configurar o bridge (destino da comanda)
+.\scripts\configure-bridge.ps1 -TargetPrinter "Microsoft Print to PDF"   # teste
+# ou, com térmica física instalada:
+.\scripts\configure-bridge.ps1 -TargetPrinter "EPSON TM-T20"
+
+# 5. Rodar o serviço (PowerShell Admin, para ler o spool)
 npm run dev
-
-# 4. No Gestor: selecione impressora FÍSICA ou Microsoft Print to PDF
-# 5. Receba um pedido — [CDP] Pedido capturado
-# 6. Imprima — [IMPRESSÃO] QR adicionado (npm run dev)
 ```
 
-**Por que CDP?** O Gestor Desktop guarda pedidos no IndexedDB (formato binário V8). Ler arquivos não captura pedidos novos. A porta debug permite interceptar as APIs em tempo real — igual à extensão Chrome.
+**Fluxo de uso:**
 
-## Instalação como serviço Windows
-
-```powershell
-.\scripts\install-service.ps1
-```
+1. Feche o Gestor e abra pelo atalho `Gestor de Pedidos.ifood-qr.lnk` (porta CDP 9222)
+2. `npm run dev`
+3. Receba um pedido — `[CDP] Pedido capturado`
+4. No Gestor, imprima na impressora **"iFood QR Bridge"**
+5. O serviço captura o `output.prn`, injeta o QR e reencaminha para a impressora destino
 
 ## Configuração
 
@@ -79,6 +86,9 @@ Arquivo: `%ProgramData%\iFoodQrService\config.json`
 | `healthPort` | `7420` | Porta da API local |
 | `cdpEnabled` | `true` | Captura via CDP (porta debug do Electron) |
 | `cdpPort` | `9222` | Porta de debug do Gestor |
+| `printerName` | `iFood QR Bridge` | Impressora virtual de captura |
+| `targetPrinterName` | `""` | Impressora de destino (térmica física) |
+| `printFileWatchEnabled` | `false` | Monitora `output.prn` (ligado pelo configure-bridge) |
 | `printCacheWaitMs` | `2000` | Espera pelo pedido no cache antes de imprimir sem QR |
 | `cacheMaxAgeHours` | `24` | TTL de pedidos no cache (0 = sem expiração) |
 | `printPreviewEnabled` | `true` | Salva cópia legível de cada comanda enriquecida |
@@ -93,8 +103,7 @@ Arquivo: `%ProgramData%\iFoodQrService\config.json`
 | `/orders/:displayId` | GET | Busca pedido por número |
 | `/ingest` | POST | Ingere JSON manualmente (debug) |
 | `/print/enrich` | POST | Enriquece invoice `{ "invoice": "..." }` |
-| `/print` | POST | Enriquece body JSON de print |
-| `/diagnostics` | GET | Estado CDP + cache |
+| `/diagnostics` | GET | Estado CDP + file-watcher + cache |
 
 ## Desenvolvimento
 
@@ -115,38 +124,19 @@ Com `npm run dev`, o terminal mostra:
 | `[STATUS]` | Resumo a cada 30s (pedidos no cache) |
 | `[PEDIDO CAPTURADO]` | Pedido salvo no cache |
 | `[CDP]` | Pedido capturado via CDP |
+| `[FILE]` | Arquivo `output.prn` detectado/processado |
+| `[QUEUE]` | Job de impressão processado (extração + enriquecimento) |
 | `[IMPRESSÃO]` | QR adicionado a uma comanda |
-| `[PRINT]` | Preview da comanda salvo em disco |
+| `[PRINT]` | Preview salvo / comanda reencaminhada |
 
 Arquivos de log (Windows):
 
 ```
 C:\ProgramData\iFoodQrService\logs\service.log     # log completo JSON
 C:\ProgramData\iFoodQrService\logs\activity.log    # só eventos importantes
-C:\ProgramData\iFoodQrService\logs\print-hook.log  # hook de impressão (main process)
+C:\ProgramData\iFoodQrService\spool\output.prn     # stream raw capturado
+C:\ProgramData\iFoodQrService\spool\debug\         # dumps (*-readable.txt, *-enriched.txt)
 ```
-
-### Verificar rapidamente
-
-```powershell
-# Terminal 1
-npm run dev
-
-# Terminal 2
-npm run test:service
-curl http://127.0.0.1:7420/diagnostics
-curl http://127.0.0.1:7420/cache/stats
-```
-
-## Rotas interceptadas
-
-Regex (mesma da extensão Chrome):
-
-```
-/orders?(?:\/|\?|$)|events:polling|expedition|merchant|store|totem
-```
-
-Consulte [docs/PHASE0-TRAFFIC-CAPTURE.md](docs/PHASE0-TRAFFIC-CAPTURE.md) para validação no ambiente do parceiro.
 
 ## Desinstalação
 
@@ -156,6 +146,5 @@ Consulte [docs/PHASE0-TRAFFIC-CAPTURE.md](docs/PHASE0-TRAFFIC-CAPTURE.md) para v
 
 ## Referências
 
-- [docs/spec/gestor-desktop-integration.md](docs/spec/gestor-desktop-integration.md) — integração com o Gestor Desktop
-- [docs/spec/print-pipeline.md](docs/spec/print-pipeline.md) — fluxo de impressão e injeção do QR
 - [docs/adr/](docs/adr/) — registros de decisão de arquitetura
+- [docs/spec/](docs/spec/) — especificações de integração

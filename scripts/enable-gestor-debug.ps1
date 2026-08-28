@@ -1,22 +1,25 @@
-﻿<#
+<#
 .SYNOPSIS
-    Configura atalho do Gestor Desktop patched (CDP + ipcHandler hook).
+    Cria o atalho do Gestor Desktop com a porta de debug (CDP) habilitada.
+
+.DESCRIPTION
+    A captura de pedidos usa o Chrome DevTools Protocol na porta 9222.
+    Este script cria um atalho "Gestor de Pedidos.ifood-qr.lnk" que inicia
+    o Gestor com --remote-debugging-port=9222. Nao patcheia o app (a
+    abordagem de hook no Electron foi descartada — ver ADR-004).
+
+.EXAMPLE
+    .\enable-gestor-debug.ps1
+    .\enable-gestor-debug.ps1 -DebugPort 9222
 #>
 param([int]$DebugPort = 9222)
 $ErrorActionPreference = "Stop"
 $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
-$ConfigPath = Join-Path ${env:ProgramData} "iFoodQrService\config.json"
-$GestorUnpackDir = Join-Path ${env:ProgramData} "iFoodQrService\gestor-unpacked"
 $GestorExe = "${env:ProgramFiles(x86)}\Gestor de Pedidos\Gestor de Pedidos.exe"
 
-& (Join-Path $ScriptDir "setup-gestor-patch.ps1")
-
-$config = @{}
-if (Test-Path $ConfigPath) {
-  (Get-Content $ConfigPath -Raw | ConvertFrom-Json).PSObject.Properties | ForEach-Object { $config[$_.Name] = $_.Value }
+if (-not (Test-Path $GestorExe)) {
+    Write-Error "Gestor nao encontrado em $GestorExe"
 }
-$config["cdpPrintHookEnabled"] = $false
-($config | ConvertTo-Json -Depth 10) | Set-Content $ConfigPath -Encoding UTF8
 
 function New-AppShortcut {
   param(
@@ -58,7 +61,7 @@ function New-AppShortcut {
   $newLnk.TargetPath = $TargetExe
   $newLnk.WorkingDirectory = $lnk.WorkingDirectory
   if ($lnk.IconLocation) { $newLnk.IconLocation = $lnk.IconLocation }
-  $newLnk.Description = "iFood QR patched (Gestor Desktop)"
+  $newLnk.Description = "iFood QR (CDP debug)"
   $newLnk.Arguments = $Arguments
   $newLnk.Save()
   return $newPath
@@ -71,9 +74,9 @@ $searchPaths = @(
 )
 
 Write-Host ""
-Write-Host "=== Atalho iFood QR (Gestor Desktop) ===" -ForegroundColor Cyan
+Write-Host "=== Atalho iFood QR (CDP debug) ===" -ForegroundColor Cyan
 
-$gestorArgs = "--remote-debugging-port=$DebugPort --app-path=$GestorUnpackDir"
+$gestorArgs = "--remote-debugging-port=$DebugPort"
 $gestorShortcut = New-AppShortcut `
   -SourcePattern 'Gestor de Pedidos' `
   -TargetExe $GestorExe `
@@ -85,13 +88,9 @@ Write-Host "  Args: $gestorArgs"
 
 Write-Host ""
 Write-Host "PROXIMOS PASSOS:" -ForegroundColor Cyan
-Write-Host "  1. npm run dev"
-Write-Host "  2. Feche o Gestor Desktop completamente (bandeja do sistema)"
-Write-Host "  3. .\scripts\start-gestor-debug.ps1"
-Write-Host "  4. Receba um pedido — log: [PEDIDO CAPTURADO]"
-Write-Host "  5. Imprima comanda (Microsoft Print to PDF ok para teste)"
-Write-Host "  6. Logs esperados:"
-Write-Host "       npm run dev  -> [IMPRESSAO] QR adicionado"
-Write-Host "       Gestor/main  -> [iFood QR] Impressao interceptada"
+Write-Host "  1. Feche o Gestor Desktop completamente (bandeja do sistema)"
+Write-Host "  2. Abra pelo atalho Gestor de Pedidos.ifood-qr.lnk"
+Write-Host "  3. npm run dev"
+Write-Host "  4. Receba um pedido — log: [CDP] Pedido capturado"
+Write-Host "  5. Imprima na impressora virtual 'iFood QR Bridge'"
 Write-Host ""
-Write-Host "Docs: docs/spec/gestor-desktop-integration.md"

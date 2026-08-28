@@ -30,8 +30,8 @@ export interface ServiceConfig {
   printerName: string;
   /** Impressora física de destino (recebe a comanda com QR) */
   targetPrinterName: string;
-  /** Monitora fila Windows (PORTPROMPT + driver Generic/Text Only) */
-  printQueueWatchEnabled: boolean;
+  /** Monitora o arquivo output.prn da impressora virtual (porta FILE:) */
+  printFileWatchEnabled: boolean;
   /** Diretório para arquivos de spool capturados */
   spoolDir: string;
   /** Salva dump txt/bin de cada job para debug */
@@ -57,7 +57,7 @@ export const DEFAULT_CONFIG: ServiceConfig = {
   cacheMaxAgeHours: 24,
   printerName: 'iFood QR Bridge',
   targetPrinterName: '',
-  printQueueWatchEnabled: false,
+  printFileWatchEnabled: false,
   spoolDir: '',
   printDebugEnabled: true,
   printDebugDir: '',

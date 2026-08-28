@@ -67,4 +67,4 @@ Write-Host "  Nome:   $VirtualPrinterName"
 Write-Host "  Porta:  $OutputPrn (arquivo)"
 Write-Host "  Driver: $driverName (raw)"
 Write-Host ""
-Write-Host "Proximo passo: .\configure-portprompt-mode.ps1" -ForegroundColor Yellow
+Write-Host "Proximo passo: .\configure-bridge.ps1" -ForegroundColor Yellow

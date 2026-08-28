@@ -98,7 +98,7 @@ export class HttpApi {
         spoolDir: this.options.config.spoolDir,
         printerName: this.options.config.printerName,
         targetPrinterName: this.options.config.targetPrinterName,
-        queueWatchEnabled: this.options.config.printQueueWatchEnabled,
+        fileWatchEnabled: this.options.config.printFileWatchEnabled,
         dica: 'Abra *-readable.txt e *-enriched.txt apos cada impressao',
         cache: this.options.cache.getStats(),
         orders: this.options.cache.getAllOrders(),

@@ -44,7 +44,7 @@ export class FileWatcher {
 
   getDiagnostics(): FileWatcherDiagnostics {
     return {
-      enabled: this.config.printQueueWatchEnabled,
+      enabled: this.config.printFileWatchEnabled,
       filePath: this.filePath,
       jobsProcessed: this.jobsProcessed,
       lastJobAt: this.lastJobAt,
@@ -55,7 +55,7 @@ export class FileWatcher {
   }
 
   start(): void {
-    if (!this.config.printQueueWatchEnabled || process.platform !== 'win32') {
+    if (!this.config.printFileWatchEnabled || process.platform !== 'win32') {
       return;
     }
 
