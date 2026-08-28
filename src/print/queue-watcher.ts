@@ -70,7 +70,7 @@ export class PrintQueueWatcher {
 
     this.pollTimer = setInterval(() => {
       void this.pollJobs();
-    }, 400);
+    }, 150);
 
     this.logger.info('[QUEUE] Watcher de fila ativo', {
       printer: this.config.printerName,

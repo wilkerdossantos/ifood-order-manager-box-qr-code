@@ -61,10 +61,28 @@ function Find-SplForPrinter {
     if ($null -ne $best) {
         return $best.FullName
     }
+
+    # Fallback: o .SHD pode nao conter o nome legivel da impressora (PORTPROMPT).
+    # Nesse caso, retorna o .SPL mais recente disponivel no spool.
+    $newest = Get-ChildItem -Path $dir -Filter '*.SPL' -ErrorAction SilentlyContinue |
+        Sort-Object LastWriteTime -Descending | Select-Object -First 1
+    if ($null -ne $newest) {
+        return $newest.FullName
+    }
+
     return $null
 }
 
 try {
+    # Pausa o job para segurar o SPL no spool antes de copiar.
+    $paused = $false
+    try {
+        Set-PrintJob -PrinterName $PrinterName -ID $JobId -JobStatus Paused -ErrorAction Stop
+        $paused = $true
+    } catch {
+        # Se ja foi processado, nao da para pausar; seguimos tentando capturar.
+    }
+
     $splPath = Find-SplForPrinter -Printer $PrinterName
 
     if (-not $splPath) {
@@ -90,6 +108,7 @@ try {
         splPath   = $splPath
         splBytes  = $splBytes
         cancelled = $cancelled
+        paused    = $paused
     })
     exit 0
 }
