@@ -52,6 +52,9 @@ function logHook(line) {
   console.log(line);
 }
 
+// Log top-level: prova que o módulo foi importado pelo main.mjs.
+logHook("[iFood QR] MODULO ifood-qr-ipc-hook.mjs importado");
+
 function extractTextFromInvoice(invoice) {
   const direct = extractFromClient(invoice);
   if (direct.trim()) return direct;
