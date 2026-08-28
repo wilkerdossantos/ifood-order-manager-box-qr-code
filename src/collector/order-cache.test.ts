@@ -46,6 +46,16 @@ describe('OrderCache', () => {
     expect(found?.pickupCode).toBe('AB99');
   });
 
+  it('finds order in Gestor v2 invoice format', () => {
+    const gestorV2 = fs.readFileSync(
+      path.join(__dirname, '../../docs/fixtures/invoice-gestor-v2.txt'),
+      'utf-8',
+    );
+    cache.ingestPayload(pollingFixture);
+    const found = cache.findOrderInInvoice(gestorV2);
+    expect(found?.displayId).toBe('6798');
+  });
+
   it('finds order in invoice text', () => {
     cache.ingestPayload(pollingFixture);
     const found = cache.findOrderInInvoice(invoiceSample);

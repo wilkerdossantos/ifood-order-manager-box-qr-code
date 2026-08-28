@@ -47,7 +47,7 @@ export interface ServiceConfig {
   printDebugDir: string;
   /** Monitora fila Windows (PORTPROMPT + Print to PDF — experimental) */
   printQueueWatchEnabled: boolean;
-  /** Hook de impressão no renderer via CDP (fallback; use print-main-hook.cjs) */
+  /** Hook de impressão no renderer via CDP (principal no Gestor Desktop empacotado) */
   cdpPrintHookEnabled: boolean;
   /** Scan electron-store / arquivos locais (backup; IndexedDB não é confiável) */
   electronStoreWatchEnabled: boolean;
@@ -91,7 +91,7 @@ export const DEFAULT_CONFIG: ServiceConfig = {
   printDebugEnabled: true,
   printDebugDir: '',
   printQueueWatchEnabled: false,
-  cdpPrintHookEnabled: false,
+  cdpPrintHookEnabled: true,
   electronStoreWatchEnabled: false,
   printCacheWaitMs: 2000,
   cacheMaxAgeHours: 24,

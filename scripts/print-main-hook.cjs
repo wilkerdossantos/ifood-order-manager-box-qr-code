@@ -1,4 +1,6 @@
 /**
+ * DEPRECATED — see docs/adr/004-deprecated-approaches.md
+ * Alternative ipcMain.on patch; prefer ipcHandler.js hook via setup-gestor-patch.ps1.
  * Hook no processo principal do Electron (Gestor Desktop).
  * Intercepta printOrder e enriquece a comanda via serviço local (HTTP).
  */

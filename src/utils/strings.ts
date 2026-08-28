@@ -47,9 +47,27 @@ export function shouldIngestUrl(url: string, pattern?: string): boolean {
 
 export function extractDisplayIdFromInvoice(invoice: string): string {
   const raw = String(invoice || '');
-  return (
+
+  const labeled =
     raw.match(/PEDIDO:\s*#?\s*([A-Z0-9-]+)/i)?.[1] ||
-    clean(raw).match(/(?:pedido|order)\s*#?\s*([A-Z0-9-]+)/i)?.[1] ||
-    ''
-  );
+    raw.match(/(?:N[UÚ]MERO\s+DO\s+PEDIDO|ORDER\s+NUMBER)\s*:?\s*#?\s*([0-9]{3,8})/i)?.[1] ||
+    clean(raw).match(/(?:pedido|order)\s*#?\s*([A-Z0-9-]+)/i)?.[1];
+
+  if (labeled) return labeled;
+
+  const hashLine = raw.match(/^\s*#\s*([0-9]{3,8})\s*$/m)?.[1];
+  if (hashLine) return hashLine;
+
+  // Gestor Desktop v2: shortReference aparece sozinho (4-8 digitos), entre linhas decorativas.
+  const stopSection = /^(ITENS|ITEMS|DATA:|ENTREGA|RETIRADA|SERVIR|RESUMO|TOTAL)/i;
+  const ignoreLine = /^(ifood|iFood)$/i;
+  const decorative = /^[-─\s]+$/;
+  for (const line of raw.split('\n')) {
+    const trimmed = clean(line);
+    if (!trimmed || decorative.test(trimmed) || ignoreLine.test(trimmed)) continue;
+    if (stopSection.test(trimmed)) break;
+    if (/^[0-9]{4,8}$/.test(trimmed)) return trimmed;
+  }
+
+  return '';
 }
