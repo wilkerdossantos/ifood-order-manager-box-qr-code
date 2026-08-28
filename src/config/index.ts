@@ -23,7 +23,9 @@ export function loadConfig(configPath?: string): ServiceConfig {
   let fileConfig: Partial<ServiceConfig> = {};
   if (fs.existsSync(resolvedPath)) {
     try {
-      fileConfig = JSON.parse(fs.readFileSync(resolvedPath, 'utf-8')) as Partial<ServiceConfig>;
+      // Strip BOM (U+FEFF) adicionado pelo PowerShell 5.1 (Set-Content -Encoding UTF8).
+      const raw = fs.readFileSync(resolvedPath, 'utf-8').replace(/^﻿/, '');
+      fileConfig = JSON.parse(raw) as Partial<ServiceConfig>;
     } catch {
       // use defaults
     }
