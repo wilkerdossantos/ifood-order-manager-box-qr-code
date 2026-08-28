@@ -128,12 +128,26 @@ export function enrichPrintInvoice(invoice, printerName) {
 }
 
 export async function installThermalPrinterHook(iFoodThermalPrinter) {
-  if (iFoodThermalPrinter.__ifoodQrPatched) return;
-  const origPrint = iFoodThermalPrinter.print.bind(iFoodThermalPrinter);
-  iFoodThermalPrinter.print = async (content, config) => {
-    const enriched = await enrichPrintInvoiceAsync(content, config?.printer);
-    return origPrint(enriched, config);
-  };
-  iFoodThermalPrinter.__ifoodQrPatched = true;
-  logHook("[iFood QR] thermal-printer.print patched");
+  try {
+    logHook(
+      `[iFood QR] installThermalPrinterHook chamado — tp=${typeof iFoodThermalPrinter} print=${typeof iFoodThermalPrinter?.print} keys=${Object.keys(iFoodThermalPrinter || {}).slice(0, 8).join(',')}`,
+    );
+    if (!iFoodThermalPrinter || typeof iFoodThermalPrinter.print !== "function") {
+      logHook(`[iFood QR] ERRO: thermal-printer.print nao eh funcao (type=${typeof iFoodThermalPrinter?.print})`);
+      return;
+    }
+    if (iFoodThermalPrinter.__ifoodQrPatched) {
+      logHook("[iFood QR] ja patcheado, ignorando");
+      return;
+    }
+    const origPrint = iFoodThermalPrinter.print.bind(iFoodThermalPrinter);
+    iFoodThermalPrinter.print = async (content, config) => {
+      const enriched = await enrichPrintInvoiceAsync(content, config?.printer);
+      return origPrint(enriched, config);
+    };
+    iFoodThermalPrinter.__ifoodQrPatched = true;
+    logHook("[iFood QR] thermal-printer.print patched");
+  } catch (err) {
+    logHook(`[iFood QR] ERRO no installThermalPrinterHook: ${err?.message || err}`);
+  }
 }
