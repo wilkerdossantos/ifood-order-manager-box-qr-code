@@ -26,6 +26,17 @@ export interface ServiceConfig {
   printCacheWaitMs: number;
   /** Idade máxima de pedidos no cache (horas); 0 = sem expiração */
   cacheMaxAgeHours: number;
+  /** Impressora virtual "iFood QR Bridge" (captura o job) */
+  printerName: string;
+  /** Impressora física de destino (recebe a comanda com QR) */
+  targetPrinterName: string;
+  /** Monitora fila Windows (PORTPROMPT + driver Generic/Text Only) */
+  printQueueWatchEnabled: boolean;
+  /** Diretório para arquivos de spool capturados */
+  spoolDir: string;
+  /** Salva dump txt/bin de cada job para debug */
+  printDebugEnabled: boolean;
+  printDebugDir: string;
 }
 
 export const DEFAULT_CONFIG: ServiceConfig = {
@@ -44,6 +55,12 @@ export const DEFAULT_CONFIG: ServiceConfig = {
   printPreviewDir: '',
   printCacheWaitMs: 2000,
   cacheMaxAgeHours: 24,
+  printerName: 'iFood QR Bridge',
+  targetPrinterName: '',
+  printQueueWatchEnabled: false,
+  spoolDir: '',
+  printDebugEnabled: true,
+  printDebugDir: '',
 };
 
 export interface PrintMeta {

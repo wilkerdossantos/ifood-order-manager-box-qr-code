@@ -3,7 +3,10 @@ import path from 'node:path';
 import { CdpCollector } from '../collector/cdp-collector.js';
 import { OrderCache } from '../collector/order-cache.js';
 import { loadConfig } from '../config/index.js';
+import { PrintDebugWriter } from '../print/print-debug-writer.js';
+import { PrintJobHandler } from '../print/print-job-handler.js';
 import { PrintPreviewWriter } from '../print/preview-writer.js';
+import { PrintQueueWatcher } from '../print/queue-watcher.js';
 import { InvoiceEnricher } from '../qr/invoice-enricher.js';
 import { ActivityLog } from '../utils/activity-log.js';
 import { createLogger } from '../utils/logger.js';
@@ -23,6 +26,7 @@ export class QrService {
       }),
   });
   private previewWriter = new PrintPreviewWriter(this.config, this.logger);
+  private debugWriter = new PrintDebugWriter(this.config, this.logger);
   private enricher = new InvoiceEnricher(this.cache, this.config, this.previewWriter);
   private cdpCollector = new CdpCollector(
     this.config,
@@ -30,6 +34,15 @@ export class QrService {
     this.logger,
     this.activity,
   );
+  private printJobHandler = new PrintJobHandler(
+    this.config,
+    this.cache,
+    this.enricher,
+    this.debugWriter,
+    this.logger,
+    this.activity,
+  );
+  private queueWatcher = new PrintQueueWatcher(this.config, this.printJobHandler, this.logger);
   private httpApi = new HttpApi({
     config: this.config,
     cache: this.cache,
@@ -43,6 +56,7 @@ export class QrService {
       cdpTargets: this.cdpCollector.getAvailableTargets(),
       cdpAttachedSessions: this.cdpCollector.getAttachedSessionCount(),
       printPreviewDir: this.previewWriter.getPreviewDir(),
+      queue: this.queueWatcher.getDiagnostics(),
     }),
   });
   private statusReporter = createStatusReporter(
@@ -64,6 +78,7 @@ export class QrService {
 
     if (this.config.enabled) {
       this.cdpCollector.start();
+      this.queueWatcher.start();
     }
 
     this.activity.startupBanner({
@@ -84,6 +99,7 @@ export class QrService {
     this.statusReporter.stop();
     this.cache.flush();
     this.cdpCollector.stop();
+    this.queueWatcher.stop();
     await this.httpApi.stop();
   }
 }

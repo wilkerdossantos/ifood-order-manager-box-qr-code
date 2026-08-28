@@ -91,6 +91,20 @@ export class HttpApi {
       return this.json(res, 200, { orders: this.options.cache.getAllOrders() });
     }
 
+    if (method === 'GET' && url.pathname === '/print/debug') {
+      return this.json(res, 200, {
+        enabled: this.options.config.printDebugEnabled,
+        debugDir: this.options.config.printDebugDir,
+        spoolDir: this.options.config.spoolDir,
+        printerName: this.options.config.printerName,
+        targetPrinterName: this.options.config.targetPrinterName,
+        queueWatchEnabled: this.options.config.printQueueWatchEnabled,
+        dica: 'Abra *-readable.txt e *-enriched.txt apos cada impressao',
+        cache: this.options.cache.getStats(),
+        orders: this.options.cache.getAllOrders(),
+      });
+    }
+
     if (method === 'GET' && url.pathname === '/diagnostics') {
       return this.json(res, 200, {
         cache: this.options.cache.getStats(),
