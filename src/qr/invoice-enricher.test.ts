@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 import { describe, expect, it, beforeEach, afterEach } from 'vitest';
 
@@ -10,8 +11,9 @@ import { DEFAULT_CONFIG } from '../config/types.js';
 import { InvoiceEnricher } from './invoice-enricher.js';
 import pollingFixture from '../../docs/fixtures/polling-response.json' with { type: 'json' };
 
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const invoiceSample = fs.readFileSync(
-  path.join(path.dirname(new URL(import.meta.url).pathname), '../../docs/fixtures/invoice-sample.txt'),
+  path.join(__dirname, '../../docs/fixtures/invoice-sample.txt'),
   'utf-8',
 );
 
@@ -33,23 +35,20 @@ describe('InvoiceEnricher', () => {
     if (fs.existsSync(cachePath)) fs.unlinkSync(cachePath);
   });
 
+  it('enriches Gestor Desktop v2 invoice format (shortReference + NÚMERO DO PEDIDO)', async () => {
+    const gestorV2 = fs.readFileSync(
+      path.join(__dirname, '../../docs/fixtures/invoice-gestor-v2.txt'),
+      'utf-8',
+    );
+    const enriched = await enricher.enrichInvoice(gestorV2);
+    expect(enriched).toContain('6798');
+    expect(enriched.length).toBeGreaterThan(gestorV2.length);
+  });
+
   it('enriches invoice with ESC/POS QR', async () => {
     const enriched = await enricher.enrichInvoice(invoiceSample);
     expect(enriched).toContain('6798');
     expect(enriched.length).toBeGreaterThan(invoiceSample.length);
-  });
-
-  it('uses pdf mode when target printer is PDF (bridge sem PDF no nome)', async () => {
-    const pdfTarget = new InvoiceEnricher(cache, {
-      ...config,
-      targetPrinterName: 'Microsoft Print to PDF',
-    });
-    const enriched = await pdfTarget.enrichInvoice(invoiceSample, {
-      printerName: 'iFood QR Bridge',
-    });
-    expect(enriched).toContain('QR:');
-    expect(enriched).toContain('LOJA:');
-    expect(enriched).not.toContain('\x1d(');
   });
 
   it('uses readable text for PDF printers', async () => {

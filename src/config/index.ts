@@ -12,18 +12,6 @@ function getProgramDataDir(): string {
   return path.join(os.homedir(), '.ifood-qr-service');
 }
 
-function getDefaultElectronPaths(): string[] {
-  if (process.platform !== 'win32') {
-    return [];
-  }
-  const appData = process.env.APPDATA || path.join(os.homedir(), 'AppData', 'Roaming');
-  return [
-    path.join(appData, 'Gestor de Pedidos'),
-    path.join(appData, 'ifood-order-manager'),
-    path.join(appData, 'ifood.order.manager'),
-  ];
-}
-
 export function getDataDir(): string {
   return path.join(getProgramDataDir(), 'iFoodQrService');
 }
@@ -45,17 +33,8 @@ export function loadConfig(configPath?: string): ServiceConfig {
     ...DEFAULT_CONFIG,
     cachePath: path.join(dataDir, 'cache.json'),
     logPath: path.join(dataDir, 'logs'),
-    spoolDir: path.join(dataDir, 'spool'),
-    electronAppDataPaths: getDefaultElectronPaths(),
     ...fileConfig,
   };
-
-  if (!config.spoolDir) {
-    config.spoolDir = path.join(dataDir, 'spool');
-  }
-  if (!config.printDebugDir) {
-    config.printDebugDir = path.join(config.spoolDir, 'debug');
-  }
 
   fs.mkdirSync(path.dirname(config.cachePath), { recursive: true });
   fs.mkdirSync(config.logPath, { recursive: true });

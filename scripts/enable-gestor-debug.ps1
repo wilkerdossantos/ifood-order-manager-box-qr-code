@@ -1,117 +1,97 @@
-<#
+﻿<#
 .SYNOPSIS
-    Configura atalho do Gestor com CDP (pedidos) + hook de impressao (sem RedMon).
-
-.DESCRIPTION
-    Adiciona ao Gestor Desktop:
-      --remote-debugging-port=9222          captura pedidos via CDP
-      --require="...\print-main-hook.cjs"   intercepta printOrder (sem RedMon)
-
-.EXAMPLE
-    .\enable-gestor-debug.ps1
+    Configura atalho do Gestor Desktop patched (CDP + ipcHandler hook).
 #>
+param([int]$DebugPort = 9222)
+$ErrorActionPreference = "Stop"
+$ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
+$ConfigPath = Join-Path ${env:ProgramData} "iFoodQrService\config.json"
+$GestorUnpackDir = Join-Path ${env:ProgramData} "iFoodQrService\gestor-unpacked"
+$GestorExe = "${env:ProgramFiles(x86)}\Gestor de Pedidos\Gestor de Pedidos.exe"
 
-param(
-    [int]$DebugPort = 9222
+& (Join-Path $ScriptDir "setup-gestor-patch.ps1")
+
+$config = @{}
+if (Test-Path $ConfigPath) {
+  (Get-Content $ConfigPath -Raw | ConvertFrom-Json).PSObject.Properties | ForEach-Object { $config[$_.Name] = $_.Value }
+}
+$config["cdpPrintHookEnabled"] = $false
+($config | ConvertTo-Json -Depth 10) | Set-Content $ConfigPath -Encoding UTF8
+
+function New-AppShortcut {
+  param(
+    [string]$SourcePattern,
+    [string]$TargetExe,
+    [string]$Arguments,
+    [string]$OutputName,
+    [string[]]$SearchPaths
+  )
+
+  $shortcut = $null
+  foreach ($base in $SearchPaths) {
+    if (-not (Test-Path $base)) { continue }
+    $found = Get-ChildItem $base -Recurse -Filter "*.lnk" -ErrorAction SilentlyContinue |
+      Where-Object { $_.Name -match $SourcePattern -and $_.Name -notmatch 'ifood-qr' } |
+      Select-Object -First 1
+    if ($found) { $shortcut = $found; break }
+  }
+
+  if (-not $shortcut) {
+    Write-Warning "Atalho nao encontrado ($SourcePattern) — criando em Start Menu"
+    $base = "$env:ProgramData\Microsoft\Windows\Start Menu\Programs"
+    New-Item -ItemType Directory -Path $base -Force | Out-Null
+    $shortcut = Join-Path $base ($OutputName -replace '\.ifood-qr\.lnk$', '.lnk')
+    if (-not (Test-Path $shortcut)) {
+      $shell = New-Object -ComObject WScript.Shell
+      $lnk = $shell.CreateShortcut($shortcut)
+      $lnk.TargetPath = $TargetExe
+      $lnk.WorkingDirectory = Split-Path $TargetExe -Parent
+      $lnk.Save()
+    }
+    $shortcut = Get-Item $shortcut
+  }
+
+  $shell = New-Object -ComObject WScript.Shell
+  $lnk = $shell.CreateShortcut($shortcut.FullName)
+  $newPath = Join-Path (Split-Path $shortcut.FullName -Parent) $OutputName
+  $newLnk = $shell.CreateShortcut($newPath)
+  $newLnk.TargetPath = $TargetExe
+  $newLnk.WorkingDirectory = $lnk.WorkingDirectory
+  if ($lnk.IconLocation) { $newLnk.IconLocation = $lnk.IconLocation }
+  $newLnk.Description = "iFood QR patched (Gestor Desktop)"
+  $newLnk.Arguments = $Arguments
+  $newLnk.Save()
+  return $newPath
+}
+
+$searchPaths = @(
+  "$env:ProgramData\Microsoft\Windows\Start Menu\Programs",
+  "$env:PUBLIC\Desktop",
+  "$env:USERPROFILE\Desktop"
 )
 
-$ErrorActionPreference = "Stop"
-
-$ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
-$HookPath = Join-Path $ScriptDir "print-main-hook.cjs"
-
-if (-not (Test-Path $HookPath)) {
-    Write-Error "Hook nao encontrado: $HookPath"
-}
-
-$debugArg = "--remote-debugging-port=$DebugPort"
-$requireArg = "--require=`"$HookPath`""
-
 Write-Host ""
-Write-Host "=== iFood QR - Configurar Gestor (sem RedMon) ===" -ForegroundColor Cyan
-Write-Host ""
-Write-Host "Hook de impressao: $HookPath" -ForegroundColor Gray
-Write-Host "Nao precisa de impressora virtual nem RedMon." -ForegroundColor Gray
-Write-Host ""
+Write-Host "=== Atalho iFood QR (Gestor Desktop) ===" -ForegroundColor Cyan
 
-function Find-GestorShortcut {
-    $searchPaths = @(
-        "$env:APPDATA\Microsoft\Windows\Start Menu\Programs",
-        "$env:ProgramData\Microsoft\Windows\Start Menu\Programs",
-        "$env:USERPROFILE\Desktop",
-        "$env:PUBLIC\Desktop"
-    )
+$gestorArgs = "--remote-debugging-port=$DebugPort --app-path=$GestorUnpackDir"
+$gestorShortcut = New-AppShortcut `
+  -SourcePattern 'Gestor de Pedidos' `
+  -TargetExe $GestorExe `
+  -Arguments $gestorArgs `
+  -OutputName "Gestor de Pedidos.ifood-qr.lnk" `
+  -SearchPaths $searchPaths
+Write-Host "Gestor: $gestorShortcut" -ForegroundColor Green
+Write-Host "  Args: $gestorArgs"
 
-    foreach ($base in $searchPaths) {
-        if (-not (Test-Path $base)) { continue }
-        $found = Get-ChildItem -Path $base -Recurse -Filter "*.lnk" -ErrorAction SilentlyContinue |
-            Where-Object { $_.Name -match 'Gestor|Pedidos|iFood|order.manager' }
-        if ($found) { return $found | Select-Object -First 1 }
-    }
-    return $null
-}
-
-function Get-ShortcutTarget {
-    param([string]$LnkPath)
-    $shell = New-Object -ComObject WScript.Shell
-    return $shell.CreateShortcut($LnkPath)
-}
-
-function Build-Args {
-    param([string]$ExistingArgs)
-
-    $combined = if ($ExistingArgs) { $ExistingArgs.Trim() } else { "" }
-
-    if ($combined -notmatch 'remote-debugging-port') {
-        $combined = "$combined $debugArg".Trim()
-    }
-    if ($combined -notmatch 'print-main-hook') {
-        $combined = "$combined $requireArg".Trim()
-    }
-
-    return $combined
-}
-
-$shortcut = Find-GestorShortcut
-
-if (-not $shortcut) {
-    Write-Host "Atalho do Gestor nao encontrado." -ForegroundColor Yellow
-    Write-Host ""
-    Write-Host "Adicione manualmente ao Destino do atalho:" -ForegroundColor White
-    Write-Host "  $debugArg" -ForegroundColor Green
-    Write-Host "  $requireArg" -ForegroundColor Green
-    Write-Host ""
-    exit 1
-}
-
-Write-Host "Atalho encontrado: $($shortcut.FullName)" -ForegroundColor Green
-
-$lnk = Get-ShortcutTarget -LnkPath $shortcut.FullName
-$newArgs = Build-Args -ExistingArgs $lnk.Arguments
-
-$newShortcutPath = [System.IO.Path]::ChangeExtension($shortcut.FullName, ".ifood-qr.lnk")
-$newLnk = Get-ShortcutTarget -LnkPath $newShortcutPath
-$newLnk.TargetPath = $lnk.TargetPath
-$newLnk.WorkingDirectory = $lnk.WorkingDirectory
-$newLnk.IconLocation = $lnk.IconLocation
-$newLnk.Description = "Gestor de Pedidos + iFood QR"
-$newLnk.Arguments = $newArgs
-$newLnk.Save()
-
-Write-Host ""
-Write-Host "Atalho criado:" -ForegroundColor Green
-Write-Host "  $newShortcutPath"
-Write-Host "  Args: $newArgs"
 Write-Host ""
 Write-Host "PROXIMOS PASSOS:" -ForegroundColor Cyan
 Write-Host "  1. npm run dev"
-Write-Host "  2. Feche o Gestor completamente"
-Write-Host "  3. Abra pelo atalho *.ifood-qr.lnk"
-Write-Host "  4. No Gestor, selecione a impressora FISICA ou Microsoft Print to PDF"
-Write-Host "     NAO use 'iFood QR Bridge' - o hook injeta QR antes da impressora"
-Write-Host "  5. Ao imprimir, no console do Gestor:"
-Write-Host "     [iFood QR] print-main-hook.cjs carregado"
-Write-Host "     [iFood QR] QR adicionado"
+Write-Host "  2. Feche o Gestor Desktop completamente (bandeja do sistema)"
+Write-Host "  3. .\scripts\start-gestor-debug.ps1"
+Write-Host "  4. Receba um pedido — log: [PEDIDO CAPTURADO]"
+Write-Host "  5. Imprima comanda (Microsoft Print to PDF ok para teste)"
+Write-Host "  6. Logs esperados:"
+Write-Host "       npm run dev  -> [IMPRESSAO] QR adicionado"
+Write-Host "       Gestor/main  -> [iFood QR] Impressao interceptada"
 Write-Host ""
-Write-Host 'Preview: C:\ProgramData\iFoodQrService\print-preview\' -ForegroundColor Gray
-Write-Host ""
+Write-Host "Docs: docs/spec/gestor-desktop-integration.md"

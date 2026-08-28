@@ -94,8 +94,50 @@ async function postEnrich(invoice, printerName, port) {
   }
 }
 
+function extractTextFromInvoice(invoice) {
+  if (typeof invoice === 'string') return invoice;
+  if (!Array.isArray(invoice)) return '';
+
+  const parts = [];
+  for (const item of invoice) {
+    if (!item || typeof item !== 'object') continue;
+    const type = String(item.type || '').toLowerCase();
+
+    if (type === 'text') {
+      parts.push(String(item.content ?? item.payload ?? ''));
+      continue;
+    }
+
+    if (type === 'leftright') {
+      parts.push(String(item.left ?? item.content?.left ?? ''));
+      parts.push(String(item.right ?? item.content?.right ?? ''));
+      continue;
+    }
+
+    if (type === 'customtable') {
+      const rows = item.content || item.rows || [];
+      if (Array.isArray(rows)) {
+        for (const row of rows) {
+          if (typeof row === 'string') parts.push(row);
+          else if (row && typeof row === 'object') parts.push(String(row.text ?? row.content ?? ''));
+        }
+      }
+      continue;
+    }
+
+    if (type === 'table' && Array.isArray(item.content)) {
+      for (const row of item.content) {
+        if (Array.isArray(row)) parts.push(row.map((cell) => String(cell ?? '')).join(' '));
+      }
+    }
+  }
+
+  return parts.join('\n');
+}
+
 function extractDisplayId(invoice) {
-  const match = String(invoice || '').match(/#\s*(\d{3,6})/);
+  const text = extractTextFromInvoice(invoice);
+  const match = String(text || '').match(/#\s*(\d{3,6})/);
   return match ? match[1] : null;
 }
 
@@ -126,9 +168,10 @@ async function enrichWithRetry(invoice, printerName, options = {}) {
   const waitMs = options.waitMs ?? loadPrintCacheWaitMs();
   const deadline = Date.now() + waitMs;
   let lastResult = null;
+  const lookupText = extractTextFromInvoice(invoice);
 
   while (Date.now() <= deadline) {
-    lastResult = await postEnrich(invoice, printerName, port);
+    lastResult = await postEnrich(lookupText, printerName, port);
 
     if (lastResult.modified) {
       return lastResult;
@@ -138,7 +181,7 @@ async function enrichWithRetry(invoice, printerName, options = {}) {
       break;
     }
 
-    const displayId = extractDisplayId(invoice);
+    const displayId = extractDisplayId(lookupText);
     if (displayId && !(await getOrder(displayId, port))) {
       await sleep(RETRY_INTERVAL_MS);
       continue;
@@ -166,6 +209,7 @@ module.exports = {
   postEnrich,
   getOrder,
   extractDisplayId,
+  extractTextFromInvoice,
   loadPrintCacheWaitMs,
   getHealthPort,
   sleep,

@@ -79,7 +79,8 @@ export class InvoiceEnricher {
       this.cache.ingestPayload(parsed);
       this.cache.ingestPrintPackage(parsed);
 
-      if (!parsed.invoice || typeof parsed.invoice !== 'string') return body;
+      const rawInvoice = parsed.invoice;
+      if (rawInvoice == null) return body;
 
       const printMeta: PrintMeta & { _parsed?: Record<string, unknown> } = {
         orderId: String(
@@ -99,15 +100,61 @@ export class InvoiceEnricher {
       };
 
       const printerConfig = (parsed.printerConfig || {}) as Record<string, unknown>;
-      const modified = await this.enrichInvoice(String(parsed.invoice), {
-        printMeta,
-        printerName: String(printerConfig.printer || ''),
-        pdfMode: this.config.pdfMode,
-      });
+      const printerName = String(printerConfig.printer || '');
 
-      if (modified !== parsed.invoice) {
-        parsed.invoice = modified;
-        return JSON.stringify(parsed);
+      if (typeof rawInvoice === 'string') {
+        const detail = await this.enrichInvoiceDetailed(String(rawInvoice), {
+          printMeta,
+          printerName,
+          pdfMode: this.config.pdfMode,
+        });
+        if (detail.modified) {
+          parsed.invoice = detail.invoice;
+          return JSON.stringify(parsed);
+        }
+        return body;
+      }
+
+      if (Array.isArray(rawInvoice)) {
+        const lookupText = rawInvoice
+          .filter((item) => item && typeof item === 'object')
+          .map((item) => {
+            const row = item as Record<string, unknown>;
+            const type = String(row.type || '').toLowerCase();
+            if (type === 'text') return String(row.content ?? row.payload ?? '');
+            if (type === 'leftright') {
+              return `${String(row.left ?? '')} ${String(row.right ?? '')}`;
+            }
+            return '';
+          })
+          .filter(Boolean)
+          .join('\n');
+
+        const detail = await this.enrichInvoiceDetailed(lookupText, {
+          printMeta,
+          printerName,
+          pdfMode: this.config.pdfMode,
+        });
+
+        if (detail.modified && detail.payload) {
+          const out = [...rawInvoice] as Record<string, unknown>[];
+          if (detail.pdfMode) {
+            out.push({
+              type: 'text',
+              content: `\n--------------------------------\nQR:\n${detail.payload}\n`,
+              align: 'center',
+            });
+          } else {
+            out.push({
+              type: 'qrCode',
+              content: detail.payload,
+              align: 'center',
+              settings: { cellSize: 6, correction: 'M' },
+            });
+          }
+          parsed.invoice = out;
+          return JSON.stringify(parsed);
+        }
       }
     } catch {
       // return original on parse failure
@@ -122,9 +169,6 @@ export class InvoiceEnricher {
   private shouldUsePdfSafeMode(options: EnrichOptions): boolean {
     if (this.config.pdfMode || options.pdfMode) return true;
     const printer = String(options.printerName || '').toUpperCase();
-    if (printer === 'PDF' || printer.includes('PDF')) return true;
-    // Bridge "iFood QR Bridge" + driver PDF nao tem "PDF" no nome da impressora
-    const target = String(this.config.targetPrinterName || '').toUpperCase();
-    return target.includes('PDF');
+    return printer === 'PDF' || printer.includes('PDF');
   }
 }
