@@ -6,7 +6,7 @@
     A captura de pedidos usa o Chrome DevTools Protocol na porta 9222.
     Este script cria um atalho "Gestor de Pedidos.ifood-qr.lnk" que inicia
     o Gestor com --remote-debugging-port=9222. Nao patcheia o app (a
-    abordagem de hook no Electron foi descartada — ver ADR-004).
+    abordagem de hook no Electron foi descartada - ver ADR-004).
 
 .EXAMPLE
     .\enable-gestor-debug.ps1
@@ -40,7 +40,7 @@ function New-AppShortcut {
   }
 
   if (-not $shortcut) {
-    Write-Warning "Atalho nao encontrado ($SourcePattern) — criando em Start Menu"
+    Write-Warning "Atalho nao encontrado ($SourcePattern) - criando em Start Menu"
     $base = "$env:ProgramData\Microsoft\Windows\Start Menu\Programs"
     New-Item -ItemType Directory -Path $base -Force | Out-Null
     $shortcut = Join-Path $base ($OutputName -replace '\.ifood-qr\.lnk$', '.lnk')
@@ -91,7 +91,7 @@ Write-Host "PROXIMOS PASSOS:" -ForegroundColor Cyan
 Write-Host "  1. Feche o Gestor Desktop completamente (bandeja do sistema)"
 Write-Host "  2. Abra pelo atalho Gestor de Pedidos.ifood-qr.lnk"
 Write-Host "  3. npm run dev"
-Write-Host "  4. Receba um pedido — log: [CDP] Pedido capturado"
+Write-Host "  4. Receba um pedido - log: [CDP] Pedido capturado"
 Write-Host "  5. Imprima na impressora virtual 'iFood QR Bridge'"
 Write-Host ""
 Write-Host "Docs: docs/spec/gestor-desktop-integration.md"
