@@ -47,7 +47,7 @@ export const DEFAULT_CONFIG: ServiceConfig = {
   logPath: '',
   logLevel: 'info',
   statusIntervalSeconds: 30,
-  ingestUrlPattern: '/orders?(?:\\/|\\?|$)|events:polling|expedition|merchant|store|totem',
+  ingestUrlPattern: '/orders?(?:\\/|\\?|$)|events:polling',
   cdpEnabled: true,
   cdpPort: 9222,
   cdpReconnectSeconds: 8,

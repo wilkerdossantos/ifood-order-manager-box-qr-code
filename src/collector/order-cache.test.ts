@@ -46,6 +46,30 @@ describe('OrderCache', () => {
     expect(found?.pickupCode).toBe('AB99');
   });
 
+  it('rejects non-order payloads (shipping config, promotions, webpack chunks)', () => {
+    // Config de shipping/promoção (não é pedido — não tem displayId real).
+    const shipping = {
+      promotions: [{ id: '87a588fe-2ce8-4646-9e68-8972cee584a7', name: 'Desconto' }],
+      dedicatedFleet: { bookings: [], enabled: false },
+    };
+    // Config de merchant com um `id` numérico (não é displayId).
+    const merchantConfig = { id: '2906624', name: 'Loja' };
+    // Chunk webpack (id = nome de chunk).
+    const webpackChunk = { id: 'orderDisplay_1787164354842' };
+
+    expect(cache.ingestPayload(shipping)).toEqual([]);
+    expect(cache.ingestPayload(merchantConfig)).toEqual([]);
+    expect(cache.ingestPayload(webpackChunk)).toEqual([]);
+    expect(cache.getStats().uniqueOrders).toBe(0);
+  });
+
+  it('does not treat a UUID-only object as a displayId', () => {
+    // Um pedido cujo único `id` é um UUID (sem displayId) não deve virar
+    // "pedido" com displayId = UUID (ex.: 12a61141-63f0-46fe-9507...).
+    const uuidOnly = { id: '12a61141-63f0-46fe-9507-c1e4a5bc8188', orderType: 'DINE_IN' };
+    expect(cache.ingestPayload(uuidOnly)).toEqual([]);
+  });
+
   it('finds order in Gestor v2 invoice format', () => {
     const gestorV2 = fs.readFileSync(
       path.join(__dirname, '../../docs/fixtures/invoice-gestor-v2.txt'),
