@@ -48,12 +48,19 @@ export function shouldIngestUrl(url: string, pattern?: string): boolean {
 export function extractDisplayIdFromInvoice(invoice: string): string {
   const raw = String(invoice || '');
 
+<<<<<<< HEAD
   // Âncora o rótulo no início da linha e exige token de 3+ chars para evitar
   // falsos positivos como "Valor total do pedido: R$ 0,00" (que capturava "R").
   const labeled =
     raw.match(/^\s*(?:N[UÚ]MERO\s+DO\s+PEDIDO|PEDIDO)\s*:?\s*#?\s*([A-Z0-9-]{3,})/im)?.[1] ||
     raw.match(/(?:ORDER\s+NUMBER)\s*:?\s*#?\s*([0-9]{3,8})/i)?.[1] ||
     clean(raw).match(/(?:pedido|order)\s*#?\s*([A-Z0-9-]{3,})/i)?.[1];
+=======
+  const labeled =
+    raw.match(/PEDIDO:\s*#?\s*([A-Z0-9-]+)/i)?.[1] ||
+    raw.match(/(?:N[UÚ]MERO\s+DO\s+PEDIDO|ORDER\s+NUMBER)\s*:?\s*#?\s*([0-9]{3,8})/i)?.[1] ||
+    clean(raw).match(/(?:pedido|order)\s*#?\s*([A-Z0-9-]+)/i)?.[1];
+>>>>>>> origin/main
 
   if (labeled) return labeled;
 
