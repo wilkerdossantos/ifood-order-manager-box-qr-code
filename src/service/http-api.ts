@@ -1,5 +1,4 @@
 import http from 'node:http';
-import path from 'node:path';
 import { URL } from 'node:url';
 
 import type { ServiceConfig } from '../config/types.js';
@@ -14,7 +13,6 @@ interface HttpApiOptions {
   enricher: InvoiceEnricher;
   logger: Logger;
   activity: ActivityLog;
-  getProxyCaPath: () => string;
   getDiagnostics: () => Record<string, unknown>;
 }
 
@@ -94,12 +92,13 @@ export class HttpApi {
     }
 
     if (method === 'GET' && url.pathname === '/print/debug') {
-      const debugDir =
-        this.options.config.printDebugDir ||
-        path.join(this.options.config.spoolDir, 'debug');
       return this.json(res, 200, {
         enabled: this.options.config.printDebugEnabled,
-        debugDir,
+        debugDir: this.options.config.printDebugDir,
+        spoolDir: this.options.config.spoolDir,
+        printerName: this.options.config.printerName,
+        targetPrinterName: this.options.config.targetPrinterName,
+        fileWatchEnabled: this.options.config.printFileWatchEnabled,
         dica: 'Abra *-readable.txt e *-enriched.txt apos cada impressao',
         cache: this.options.cache.getStats(),
         orders: this.options.cache.getAllOrders(),
@@ -112,18 +111,6 @@ export class HttpApi {
         orders: this.options.cache.getAllOrders(),
         ...this.options.getDiagnostics(),
       });
-    }
-
-    if (method === 'GET' && url.pathname === '/config/ca-cert') {
-      const caPath = this.options.getProxyCaPath();
-      res.writeHead(200, { 'Content-Type': 'application/x-pem-file' });
-      const fs = await import('node:fs');
-      if (fs.existsSync(caPath)) {
-        res.end(fs.readFileSync(caPath));
-      } else {
-        res.end('');
-      }
-      return;
     }
 
     if (method === 'POST' && url.pathname === '/ingest') {

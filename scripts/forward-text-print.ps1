@@ -1,7 +1,11 @@
 #Requires -Version 5.1
 <#
 .SYNOPSIS
-    Envia texto plano para impressora (Microsoft Print to PDF, etc.) via datatype TEXT.
+    Envia um arquivo de texto para uma impressora, em modo texto (TEXT),
+    util para Microsoft Print to PDF durante testes.
+
+.EXAMPLE
+    powershell -File forward-text-print.ps1 -PrinterName "Microsoft Print to PDF" -FilePath "C:\temp\comanda.txt"
 #>
 param(
     [Parameter(Mandatory = $true)][string]$PrinterName,
@@ -12,77 +16,70 @@ $ErrorActionPreference = 'Stop'
 
 if (-not (Test-Path $FilePath)) {
     Write-Error "Arquivo nao encontrado: $FilePath"
+    exit 1
 }
 
-Add-Type -TypeDefinition @"
-using System;
-using System.Runtime.InteropServices;
-
-public class TextPrinter {
-    [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
-    public class DOCINFO {
-        [MarshalAs(UnmanagedType.LPWStr)] public string pDocName;
-        [MarshalAs(UnmanagedType.LPWStr)] public string pOutputFile;
-        [MarshalAs(UnmanagedType.LPWStr)] public string pDatatype;
-    }
-
-    [DllImport("winspool.drv", CharSet = CharSet.Unicode, SetLastError = true)]
-    public static extern bool OpenPrinter(string pPrinterName, out IntPtr phPrinter, IntPtr pDefault);
-
-    [DllImport("winspool.drv", SetLastError = true)]
-    public static extern bool ClosePrinter(IntPtr hPrinter);
-
-    [DllImport("winspool.drv", CharSet = CharSet.Unicode, SetLastError = true)]
-    public static extern bool StartDocPrinter(IntPtr hPrinter, int level, [In] DOCINFO di);
-
-    [DllImport("winspool.drv", SetLastError = true)]
-    public static extern bool EndDocPrinter(IntPtr hPrinter);
-
-    [DllImport("winspool.drv", SetLastError = true)]
-    public static extern bool StartPagePrinter(IntPtr hPrinter);
-
-    [DllImport("winspool.drv", SetLastError = true)]
-    public static extern bool EndPagePrinter(IntPtr hPrinter);
-
-    [DllImport("winspool.drv", SetLastError = true)]
-    public static extern bool WritePrinter(IntPtr hPrinter, IntPtr pBytes, int dwCount, out int dwWritten);
-
-    public static void Send(string printerName, byte[] bytes) {
-        IntPtr hPrinter;
-        if (!OpenPrinter(printerName, out hPrinter, IntPtr.Zero))
-            throw new Exception("OpenPrinter failed: " + printerName);
-
-        try {
-            var di = new DOCINFO {
-                pDocName = "iFood QR Bridge",
-                pDatatype = "TEXT"
-            };
-            if (!StartDocPrinter(hPrinter, 1, di))
-                throw new Exception("StartDocPrinter failed");
-            try {
-                if (!StartPagePrinter(hPrinter))
-                    throw new Exception("StartPagePrinter failed");
-                IntPtr ptr = Marshal.AllocCoTaskMem(bytes.Length);
-                try {
-                    Marshal.Copy(bytes, 0, ptr, bytes.Length);
-                    int written;
-                    if (!WritePrinter(hPrinter, ptr, bytes.Length, out written))
-                        throw new Exception("WritePrinter failed");
-                } finally {
-                    Marshal.FreeCoTaskMem(ptr);
-                }
-                EndPagePrinter(hPrinter);
-            } finally {
-                EndDocPrinter(hPrinter);
-            }
-        } finally {
-            ClosePrinter(hPrinter);
-        }
-    }
+$printer = Get-Printer -Name $PrinterName -ErrorAction SilentlyContinue
+if (-not $printer) {
+    Write-Error "Impressora nao encontrada: $PrinterName"
+    exit 1
 }
-"@
 
-$text = [System.IO.File]::ReadAllText($FilePath, [System.Text.Encoding]::UTF8)
-$bytes = [System.Text.Encoding]::GetEncoding(28591).GetBytes($text)
-[TextPrinter]::Send($PrinterName, $bytes)
-Write-Host "[forward-text-print] OK -> $PrinterName ($($bytes.Length) bytes TEXT)"
+try {
+    # O modo TEXT usa o spooler com tipo de dado "TEXT".
+    $text = [System.IO.File]::ReadAllText($FilePath, [System.Text.Encoding]::UTF8)
+    $tmp = [System.IO.Path]::GetTempFileName() + ".txt"
+    [System.IO.File]::WriteAllText($tmp, $text)
+
+    $jobName = "iFood QR - " + (Get-Date -Format 'yyyyMMddHHmmss')
+
+    Add-Type -Namespace Win32 -Name PrintSpoolerText -MemberDefinition @'
+[DllImport("winspool.drv", CharSet=CharSet.Unicode, SetLastError=true)]
+public static extern bool OpenPrinter(string pPrinterName, out IntPtr phPrinter, IntPtr pDefault);
+[DllImport("winspool.drv", SetLastError=true)]
+public static extern bool ClosePrinter(IntPtr hPrinter);
+[DllImport("winspool.drv", CharSet=CharSet.Unicode, SetLastError=true)]
+public static extern bool StartDocPrinter(IntPtr hPrinter, int level, [In] ref DOC_INFO_1 di);
+[DllImport("winspool.drv", SetLastError=true)]
+public static extern bool EndDocPrinter(IntPtr hPrinter);
+[DllImport("winspool.drv", SetLastError=true)]
+public static extern bool StartPagePrinter(IntPtr hPrinter);
+[DllImport("winspool.drv", SetLastError=true)]
+public static extern bool EndPagePrinter(IntPtr hPrinter);
+[DllImport("winspool.drv", SetLastError=true)]
+public static extern bool WritePrinter(IntPtr hPrinter, byte[] pBytes, int dwCount, out int dwWritten);
+[StructLayout(LayoutKind.Sequential, CharSet=CharSet.Unicode)]
+public struct DOC_INFO_1 { public string pDocName; public string pOutputFile; public string pDataType; }
+'@
+
+    $di = New-Object Win32.PrintSpoolerText+DOC_INFO_1
+    $di.pDocName = $jobName
+    $di.pDataType = "TEXT"
+
+    $hPrinter = [IntPtr]::Zero
+    $opened = [Win32.PrintSpoolerText]::OpenPrinter($PrinterName, [ref]$hPrinter, [IntPtr]::Zero)
+    if (-not $opened -or $hPrinter -eq [IntPtr]::Zero) {
+        throw "OpenPrinter falhou para '$PrinterName'"
+    }
+
+    $bytes = [System.Text.Encoding]::GetEncoding('latin1').GetBytes($text)
+    try {
+        [Win32.PrintSpoolerText]::StartDocPrinter($hPrinter, 1, [ref]$di) | Out-Null
+        [Win32.PrintSpoolerText]::StartPagePrinter($hPrinter) | Out-Null
+        $written = 0
+        [Win32.PrintSpoolerText]::WritePrinter($hPrinter, $bytes, $bytes.Length, [ref]$written) | Out-Null
+        [Win32.PrintSpoolerText]::EndPagePrinter($hPrinter) | Out-Null
+        [Win32.PrintSpoolerText]::EndDocPrinter($hPrinter) | Out-Null
+    }
+    finally {
+        [Win32.PrintSpoolerText]::ClosePrinter($hPrinter) | Out-Null
+        Remove-Item $tmp -ErrorAction SilentlyContinue
+    }
+
+    Write-Output "OK: texto enviado para '$PrinterName'"
+    exit 0
+}
+catch {
+    Write-Error "Falha ao enviar texto para '$PrinterName': $($_.Exception.Message)"
+    exit 1
+}

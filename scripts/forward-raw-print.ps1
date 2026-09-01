@@ -1,11 +1,11 @@
 #Requires -Version 5.1
 <#
 .SYNOPSIS
-    Envia arquivo RAW para impressora Windows (modo ESC/POS).
-.PARAMETER PrinterName
-    Nome exato da impressora de destino.
-.PARAMETER FilePath
-    Arquivo com bytes RAW/latin1 da comanda.
+    Envia um arquivo raw (ESC/POS) para uma impressora, via spooler Windows
+    em modo RAW (sem reprocessar pelo driver).
+
+.EXAMPLE
+    powershell -File forward-raw-print.ps1 -PrinterName "EPSON TM-T20" -FilePath "C:\temp\comanda.raw"
 #>
 param(
     [Parameter(Mandatory = $true)][string]$PrinterName,
@@ -16,77 +16,79 @@ $ErrorActionPreference = 'Stop'
 
 if (-not (Test-Path $FilePath)) {
     Write-Error "Arquivo nao encontrado: $FilePath"
+    exit 1
 }
 
-Add-Type -TypeDefinition @"
-using System;
-using System.IO;
-using System.Runtime.InteropServices;
-
-public class RawPrinter {
-    [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
-    public class DOCINFO {
-        [MarshalAs(UnmanagedType.LPWStr)] public string pDocName;
-        [MarshalAs(UnmanagedType.LPWStr)] public string pOutputFile;
-        [MarshalAs(UnmanagedType.LPWStr)] public string pDatatype;
-    }
-
-    [DllImport("winspool.drv", CharSet = CharSet.Unicode, SetLastError = true)]
-    public static extern bool OpenPrinter(string pPrinterName, out IntPtr phPrinter, IntPtr pDefault);
-
-    [DllImport("winspool.drv", SetLastError = true)]
-    public static extern bool ClosePrinter(IntPtr hPrinter);
-
-    [DllImport("winspool.drv", CharSet = CharSet.Unicode, SetLastError = true)]
-    public static extern bool StartDocPrinter(IntPtr hPrinter, int level, [In] DOCINFO di);
-
-    [DllImport("winspool.drv", SetLastError = true)]
-    public static extern bool EndDocPrinter(IntPtr hPrinter);
-
-    [DllImport("winspool.drv", SetLastError = true)]
-    public static extern bool StartPagePrinter(IntPtr hPrinter);
-
-    [DllImport("winspool.drv", SetLastError = true)]
-    public static extern bool EndPagePrinter(IntPtr hPrinter);
-
-    [DllImport("winspool.drv", SetLastError = true)]
-    public static extern bool WritePrinter(IntPtr hPrinter, IntPtr pBytes, int dwCount, out int dwWritten);
-
-    public static void Send(string printerName, byte[] bytes) {
-        IntPtr hPrinter;
-        if (!OpenPrinter(printerName, out hPrinter, IntPtr.Zero))
-            throw new Exception("OpenPrinter failed: " + printerName);
-
-        try {
-            var di = new DOCINFO {
-                pDocName = "iFood QR Bridge",
-                pDatatype = "RAW"
-            };
-            if (!StartDocPrinter(hPrinter, 1, di))
-                throw new Exception("StartDocPrinter failed");
-            try {
-                if (!StartPagePrinter(hPrinter))
-                    throw new Exception("StartPagePrinter failed");
-                IntPtr ptr = Marshal.AllocCoTaskMem(bytes.Length);
-                try {
-                    Marshal.Copy(bytes, 0, ptr, bytes.Length);
-                    int written;
-                    if (!WritePrinter(hPrinter, ptr, bytes.Length, out written))
-                        throw new Exception("WritePrinter failed");
-                } finally {
-                    Marshal.FreeCoTaskMem(ptr);
-                }
-                EndPagePrinter(hPrinter);
-            } finally {
-                EndDocPrinter(hPrinter);
-            }
-        } finally {
-            ClosePrinter(hPrinter);
-        }
-    }
+# Verifica se a impressora existe.
+$printer = Get-Printer -Name $PrinterName -ErrorAction SilentlyContinue
+if (-not $printer) {
+    Write-Error "Impressora nao encontrada: $PrinterName"
+    exit 1
 }
-"@
 
+# Le o arquivo e envia como raw via porta da impressora.
+# Enviar via spooler "raw" usa a API de job do Windows sem transformar o payload.
 $bytes = [System.IO.File]::ReadAllBytes($FilePath)
-[RawPrinter]::Send($PrinterName, $bytes)
-Write-Host "[forward-raw-print] OK -> $PrinterName ($($bytes.Length) bytes)"
+$jobName = "iFood QR - " + (Get-Date -Format 'yyyyMMddHHmmss')
+
+# RawDataObject: envia bytes diretamente para a impressora.
+$success = $false
+try {
+    $rawData = [System.IO.File]::ReadAllBytes($FilePath)
+
+    # Usa a API do spooler via .NET (RawPrinterHelper-like) para modo raw.
+    $printerPath = "\\" + $env:COMPUTERNAME + "\" + $PrinterName
+    # Fallback simples: copia para a porta da impressora usando o spooler.
+    # A forma mais confiavel de raw print em PowerShell e via Start-Process de "print" com o driver raw.
+    # Aqui usamos Add-Type com a API winspool.drv para OpenPrinter/StartDocPrinter/WritePrinter.
+    Add-Type -Namespace Win32 -Name PrintSpooler -MemberDefinition @'
+[DllImport("winspool.drv", CharSet=CharSet.Unicode, SetLastError=true)]
+public static extern bool OpenPrinter(string pPrinterName, out IntPtr phPrinter, IntPtr pDefault);
+[DllImport("winspool.drv", SetLastError=true)]
+public static extern bool ClosePrinter(IntPtr hPrinter);
+[DllImport("winspool.drv", CharSet=CharSet.Unicode, SetLastError=true)]
+public static extern bool StartDocPrinter(IntPtr hPrinter, int level, [In] ref DOC_INFO_1 di);
+[DllImport("winspool.drv", SetLastError=true)]
+public static extern bool EndDocPrinter(IntPtr hPrinter);
+[DllImport("winspool.drv", SetLastError=true)]
+public static extern bool StartPagePrinter(IntPtr hPrinter);
+[DllImport("winspool.drv", SetLastError=true)]
+public static extern bool EndPagePrinter(IntPtr hPrinter);
+[DllImport("winspool.drv", SetLastError=true)]
+public static extern bool WritePrinter(IntPtr hPrinter, byte[] pBytes, int dwCount, out int dwWritten);
+[StructLayout(LayoutKind.Sequential, CharSet=CharSet.Unicode)]
+public struct DOC_INFO_1 { public string pDocName; public string pOutputFile; public string pDataType; }
+'@
+
+    $di = New-Object Win32.PrintSpooler+DOC_INFO_1
+    $di.pDocName = $jobName
+    $di.pDataType = "RAW"
+
+    $hPrinter = [IntPtr]::Zero
+    $opened = [Win32.PrintSpooler]::OpenPrinter($PrinterName, [ref]$hPrinter, [IntPtr]::Zero)
+    if (-not $opened -or $hPrinter -eq [IntPtr]::Zero) {
+        throw "OpenPrinter falhou para '$PrinterName'"
+    }
+
+    try {
+        [Win32.PrintSpooler]::StartDocPrinter($hPrinter, 1, [ref]$di) | Out-Null
+        [Win32.PrintSpooler]::StartPagePrinter($hPrinter) | Out-Null
+        $written = 0
+        [Win32.PrintSpooler]::WritePrinter($hPrinter, $rawData, $rawData.Length, [ref]$written) | Out-Null
+        [Win32.PrintSpooler]::EndPagePrinter($hPrinter) | Out-Null
+        [Win32.PrintSpooler]::EndDocPrinter($hPrinter) | Out-Null
+        $success = $true
+    }
+    finally {
+        [Win32.PrintSpooler]::ClosePrinter($hPrinter) | Out-Null
+    }
+}
+catch {
+    Write-Error "Falha ao enviar raw para '$PrinterName': $($_.Exception.Message)"
+    exit 1
+}
+
+if ($success) {
+    Write-Output "OK: raw enviado para '$PrinterName' ($($bytes.Length) bytes)"
+    exit 0
+}

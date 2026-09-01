@@ -24,10 +24,19 @@ export function resolveScriptsDir(): string {
   return candidates[0];
 }
 
+export function isPdfPrinterName(printerName: string): boolean {
+  const upper = String(printerName || '').toUpperCase();
+  return upper === 'PDF' || upper.includes('PDF');
+}
+
 export interface ForwardOptions {
   textMode?: boolean;
 }
 
+/**
+ * Reencaminha o conteúdo (raw ESC/POS ou texto) para a impressora de destino.
+ * Retorna true se o job foi enviado com sucesso.
+ */
 export function forwardToPrinter(
   content: string,
   printerName: string,

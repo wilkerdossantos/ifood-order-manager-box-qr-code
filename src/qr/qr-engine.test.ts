@@ -36,4 +36,40 @@ describe('QR Engine', () => {
     expect(enriched.length).toBeGreaterThan(invoice.length);
     expect(enriched).toContain('────────────────');
   });
+
+  it('injects thermal QR BEFORE the cut command (GS V)', () => {
+    // Fluxo real do Totem: texto + feed + corte (GS V 0) + init (ESC @).
+    const invoice = 'EXPEDICAO\n0238\n\x1b\x64\x04\x1b\x64\x04\x1d\x56\x00\x1b\x40';
+    const enriched = injectThermalQr(invoice, 'LOJA:x|NP:0238|CR:Y|TIPO:DINE_IN|ID:z');
+
+    // O QR deve ficar antes do corte, não depois.
+    const qrIdx = enriched.indexOf('────────────────');
+    const cutIdx = enriched.indexOf('\x1d\x56');
+    expect(qrIdx).toBeGreaterThan(-1);
+    expect(cutIdx).toBeGreaterThan(qrIdx);
+
+    // O init (ESC @) permanece no final.
+    expect(enriched.endsWith('\x1b\x40')).toBe(true);
+  });
+
+  it('injects thermal QR BEFORE the Gestor footer (avoid half-cut QR)', () => {
+    // Fluxo real do Gestor: itens + total + rodapé "Gestor Web ... - Desktop ..."
+    // + feed + corte. O QR deve entrar ANTES do rodapé, para o cortador não
+    // cortá-lo no meio.
+    const invoice =
+      'Valor total do pedido: R$ 0,00\n' +
+      '       Gestor Web 9.339.0 - Desktop 8.10.0        \n' +
+      '\x1b\x64\x04\x1b\x64\x04\x1d\x56\x00\x1b\x40';
+    const enriched = injectThermalQr(invoice, 'LOJA:x|NP:0238|CR:Y|TIPO:DINE_IN|ID:z');
+
+    const qrIdx = enriched.indexOf('────────────────');
+    const footerIdx = enriched.indexOf('Gestor');
+    expect(qrIdx).toBeGreaterThan(-1);
+    expect(footerIdx).toBeGreaterThan(qrIdx); // QR antes do rodapé
+
+    // Corte continua no final, depois do rodapé.
+    const cutIdx = enriched.lastIndexOf('\x1d\x56');
+    expect(cutIdx).toBeGreaterThan(footerIdx);
+    expect(enriched.endsWith('\x1b\x40')).toBe(true);
+  });
 });

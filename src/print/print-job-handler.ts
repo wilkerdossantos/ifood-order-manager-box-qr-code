@@ -4,12 +4,11 @@ import type { ServiceConfig } from '../config/types.js';
 import type { InvoiceEnricher } from '../qr/invoice-enricher.js';
 import { stripEscPosToText } from '../qr/escpos.js';
 import { extractDisplayIdFromInvoice } from '../utils/strings.js';
-import { isPdfPrinterName } from '../utils/printer.js';
 import type { Logger } from '../utils/logger.js';
 import type { ActivityLog } from '../utils/activity-log.js';
 import type { OrderCache } from '../collector/order-cache.js';
 import type { PrintDebugWriter } from './print-debug-writer.js';
-import { forwardToPrinter } from './raw-forwarder.js';
+import { forwardToPrinter, isPdfPrinterName } from './raw-forwarder.js';
 
 export interface PrintJobHandlerResult {
   displayId: string;
@@ -28,11 +27,17 @@ export class PrintJobHandler {
     private activity: ActivityLog,
   ) {}
 
+  /**
+   * Processa o raw ESC/POS capturado da fila: extrai displayId, injeta QR e
+   * reencaminha para a impressora física de destino.
+   */
   async handleRawInvoice(
     invoice: string,
-    source: 'spool' | 'queue',
+    source: 'queue',
     extra?: Record<string, unknown>,
   ): Promise<PrintJobHandlerResult> {
+    // O SPL com driver Generic/Text Only é o stream ESC/POS raw (latin1).
+    // stripEscPosToText recupera o texto legível para extrair o displayId.
     const readable = stripEscPosToText(invoice);
     const displayId =
       extractDisplayIdFromInvoice(readable) || extractDisplayIdFromInvoice(invoice);
@@ -40,7 +45,7 @@ export class PrintJobHandler {
     const target = this.config.targetPrinterName;
     const usePdfMode = isPdfPrinterName(target);
 
-    this.logger.info(`[${source.toUpperCase()}] Job de impressao detectado`, {
+    this.logger.info(`[QUEUE] Job de impressao detectado`, {
       bytes: Buffer.byteLength(invoice, 'latin1'),
       displayId: displayId || 'N/A',
       cacheOrders: this.cache.getStats().uniqueOrders,
@@ -48,6 +53,7 @@ export class PrintJobHandler {
       pdfMode: usePdfMode,
     });
 
+    // Enriquecimento: consulta o cache (CDP) e injeta o QR.
     const detail = await this.enricher.enrichInvoiceDetailed(invoice, {
       printerName: target || this.config.printerName,
       pdfMode: usePdfMode,
@@ -73,26 +79,27 @@ export class PrintJobHandler {
 
     if (detail.modified && detail.order) {
       this.activity.printEnriched(detail.order.displayId, detail.payload || '');
-      this.logger.info(`[${source.toUpperCase()}] QR adicionado a comanda`, {
+      this.logger.info('[QUEUE] QR adicionado a comanda', {
         pedido: detail.order.displayId,
         pdfMode: detail.pdfMode,
         debug: debugEntry?.readablePath,
       });
     } else {
-      this.logger.warn(`[${source.toUpperCase()}] Comanda NAO modificada`, {
+      this.logger.warn('[QUEUE] Comanda NAO modificada', {
         displayIdExtraido: displayId || 'N/A',
         pedidosNoCache: this.cache.getStats().uniqueOrders,
-        dica: 'Veja *-readable.txt em print-debug. Confirme CDP capturando pedidos.',
+        dica: 'Veja *-readable.txt em spool/debug. Confirme CDP capturando pedidos.',
         debug: debugEntry?.readablePath,
       });
     }
 
     let forwarded = false;
     if (target) {
+      // Para impressora térmica física: raw ESC/POS. Para PDF: texto legível.
       const payload = usePdfMode ? stripEscPosToText(detail.invoice) : detail.invoice;
       forwarded = forwardToPrinter(payload, target, this.logger, { textMode: usePdfMode });
     } else {
-      this.logger.warn(`[${source.toUpperCase()}] Configure targetPrinterName em config.json`);
+      this.logger.warn('[QUEUE] Configure targetPrinterName em config.json');
     }
 
     return {
@@ -103,6 +110,7 @@ export class PrintJobHandler {
     };
   }
 
+  /** Lê um arquivo de spool (raw ESC/POS) como latin1. */
   readInvoiceFromFile(filePath: string): string {
     const raw = fs.readFileSync(filePath);
     return Buffer.from(raw).toString('latin1');

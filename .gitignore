@@ -14,6 +14,9 @@ Thumbs.db
 .idea/
 .vscode/
 
+# Local Claude Code scratch (diagnostics, probes, launch helpers)
+.claude/
+
 # Test artifacts
 coverage/
 

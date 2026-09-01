@@ -27,7 +27,27 @@ export function injectPdfQrText(invoice: string, payload: string): string {
 
 export function injectThermalQr(invoice: string, payload: string): string {
   const separator = '\n────────────────────────────────\n';
-  return String(invoice).replace(/\s*$/, '') + `${separator}${generateEscPosQr(payload)}`;
+  const raw = String(invoice);
+  const qr = generateEscPosQr(payload);
+
+  // O rodapé do app ("Gestor Web ... - Desktop ...") fica no fim, seguido do
+  // corte (GS V). Inserir o QR depois do rodapé (logo antes do corte) faz o
+  // cortador cortar o QR no meio. Então inserimos ANTES do rodapé, deixando
+  // rodapé + feed + corte depois do QR.
+  const footerIdx = raw.lastIndexOf('Gestor');
+  if (footerIdx >= 0 && /Gestor(?:\s+de\s+Pedidos)?\s+Web/i.test(raw.slice(footerIdx, footerIdx + 40))) {
+    const lineStart = raw.lastIndexOf('\n', footerIdx) + 1;
+    const head = raw.slice(0, lineStart).replace(/\s*$/, '');
+    const tail = raw.slice(lineStart);
+    return head + `${separator}${qr}\n` + tail;
+  }
+
+  // Fallback: antes do corte (GS V = \x1d\x56), com feed extra para o QR
+  // não ser cortado no meio. Se não há corte, anexa um ao final.
+  const cutIdx = raw.lastIndexOf('\x1d\x56');
+  const cut = cutIdx >= 0 ? raw.slice(cutIdx) : '\x1d\x56\x00';
+  const body = cutIdx >= 0 ? raw.slice(0, cutIdx) : raw;
+  return body.replace(/\s*$/, '') + `${separator}${qr}` + '\x1b\x64\x02' + cut;
 }
 
 /** Extrai texto legivel de comanda ESC/POS para lookup de pedido e debug. */

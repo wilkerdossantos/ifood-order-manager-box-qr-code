@@ -12,18 +12,6 @@ function getProgramDataDir(): string {
   return path.join(os.homedir(), '.ifood-qr-service');
 }
 
-function getDefaultElectronPaths(): string[] {
-  if (process.platform !== 'win32') {
-    return [];
-  }
-  const appData = process.env.APPDATA || path.join(os.homedir(), 'AppData', 'Roaming');
-  return [
-    path.join(appData, 'Gestor de Pedidos'),
-    path.join(appData, 'ifood-order-manager'),
-    path.join(appData, 'ifood.order.manager'),
-  ];
-}
-
 export function getDataDir(): string {
   return path.join(getProgramDataDir(), 'iFoodQrService');
 }
@@ -35,7 +23,9 @@ export function loadConfig(configPath?: string): ServiceConfig {
   let fileConfig: Partial<ServiceConfig> = {};
   if (fs.existsSync(resolvedPath)) {
     try {
-      fileConfig = JSON.parse(fs.readFileSync(resolvedPath, 'utf-8')) as Partial<ServiceConfig>;
+      // Strip BOM (U+FEFF) adicionado pelo PowerShell 5.1 (Set-Content -Encoding UTF8).
+      const raw = fs.readFileSync(resolvedPath, 'utf-8').replace(/^﻿/, '');
+      fileConfig = JSON.parse(raw) as Partial<ServiceConfig>;
     } catch {
       // use defaults
     }
@@ -46,7 +36,6 @@ export function loadConfig(configPath?: string): ServiceConfig {
     cachePath: path.join(dataDir, 'cache.json'),
     logPath: path.join(dataDir, 'logs'),
     spoolDir: path.join(dataDir, 'spool'),
-    electronAppDataPaths: getDefaultElectronPaths(),
     ...fileConfig,
   };
 

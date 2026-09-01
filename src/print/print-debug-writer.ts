@@ -52,7 +52,8 @@ export class PrintDebugWriter {
     fs.mkdirSync(this.dir, { recursive: true });
 
     const stamp = new Date().toISOString().replace(/[:.]/g, '-');
-    const displayId = extractDisplayIdFromInvoice(stripEscPosToText(rawInvoice)) ||
+    const displayId =
+      extractDisplayIdFromInvoice(stripEscPosToText(rawInvoice)) ||
       extractDisplayIdFromInvoice(rawInvoice) ||
       'sem-pedido';
     const label = `${stamp}-${displayId}`;
@@ -115,7 +116,7 @@ export class PrintDebugWriter {
     fs.writeFileSync(metaPath, JSON.stringify(meta, null, 2), 'utf-8');
 
     const entry: PrintDebugEntry = {
-      timestamp: meta.timestamp,
+      timestamp: meta.timestamp as string,
       source,
       rawBytes: meta.rawBytes as number,
       displayIdExtracted: displayId,

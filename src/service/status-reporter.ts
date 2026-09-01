@@ -33,9 +33,7 @@ export class StatusReporter {
       uniqueOrders: stats.uniqueOrders,
       orderKeys: stats.orderKeys,
       merchants: stats.merchants,
-      proxyHits: metrics.proxyHits,
       lastCaptureAt: metrics.lastCaptureAt,
-      lastProxyUrl: metrics.lastProxyUrl,
     });
   }
 }

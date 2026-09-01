@@ -316,7 +316,10 @@ export class OrderCache {
       orderType: mapOrderType(String(rawType)),
       orderId: this.extractOrderId(order),
     };
-    return result.merchantId || result.displayId || result.orderId ? result : null;
+    // Só é pedido se houver um displayId real (não-UUID, não-chunk). Isso
+    // descarta config de merchant, shipping e chunks webpack que hoje viram
+    // "pedido" porque têm um `id` qualquer.
+    return result.displayId ? result : null;
   }
 
   private extractDisplayId(order: Record<string, unknown>): string {
@@ -329,9 +332,19 @@ export class OrderCache {
       order.localizer,
       order.number,
     );
-    if (explicit) return explicit;
+    // displayId real nunca é um UUID nem um identificador de chunk webpack
+    // (orderDisplay_... / partnersOrderPrep_...). UUID pertence a orderId.
+    if (explicit) return this.isValidDisplayId(explicit) ? explicit : '';
     const rawId = clean(order.id);
-    return rawId && !isInternalId(rawId) ? rawId : '';
+    return rawId && this.isValidDisplayId(rawId) && !isInternalId(rawId) ? rawId : '';
+  }
+
+  private isValidDisplayId(value: string): boolean {
+    const v = clean(value);
+    if (!v) return false;
+    if (UUID.test(v)) return false; // UUID é orderId, não displayId
+    if (/[_/]/.test(v)) return false; // chunk webpack (orderDisplay_...)
+    return true;
   }
 
   private extractOrderId(order: Record<string, unknown>): string {

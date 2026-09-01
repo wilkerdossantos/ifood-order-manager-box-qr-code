@@ -1,23 +1,17 @@
 import type { OrderData } from '../config/types.js';
 import type { Logger } from './logger.js';
 
-export type CaptureSource = 'proxy' | 'electron-store' | 'cdp' | 'api' | 'print-bridge';
+export type CaptureSource = 'cdp' | 'api';
 
 export class ActivityLog {
-  private proxyHits = 0;
   private ordersCaptured = 0;
   private lastCaptureAt: string | null = null;
-  private lastProxyUrl: string | null = null;
 
   constructor(private logger: Logger) {}
 
   startupBanner(config: {
     healthPort: number;
-    proxyPort: number;
-    pipe: string;
-    caCert: string;
     cachePath: string;
-    watchTargets: string[];
     cdpPort: number;
     cdpEnabled: boolean;
     printPreviewDir: string;
@@ -33,8 +27,6 @@ export class ActivityLog {
       `  1. Health check:  http://127.0.0.1:${config.healthPort}/health`,
       `  2. Cache stats:   http://127.0.0.1:${config.healthPort}/cache/stats`,
       `  3. Pedidos:       http://127.0.0.1:${config.healthPort}/orders`,
-      '',
-      '  Gestor Desktop — NÃO configure proxy do Windows!',
       '',
       '  PASSO 1: Inicie o Gestor com debug (obrigatório para capturar pedidos):',
       `  • Execute: .\\scripts\\enable-gestor-debug.ps1`,
@@ -56,10 +48,6 @@ export class ActivityLog {
       '  Quando um pedido for capturado, verá [PEDIDO CAPTURADO].',
       '',
       `  Cache: ${config.cachePath}`,
-      `  Print pipe: ${config.pipe}`,
-      ...(config.watchTargets.length
-        ? [`  Electron watcher: ${config.watchTargets.length} alvo(s)`]
-        : ['  Electron watcher: nenhum path encontrado (proxy ainda funciona)']),
       '',
       '══════════════════════════════════════════════════════════',
       '',
@@ -67,17 +55,6 @@ export class ActivityLog {
     for (const line of lines) {
       this.logger.info(line);
     }
-  }
-
-  proxyRequest(method: string, url: string): void {
-    this.proxyHits += 1;
-    this.lastProxyUrl = url;
-    const shortUrl = url.length > 120 ? `${url.slice(0, 120)}...` : url;
-    this.logger.info('[PROXY] Tráfego interceptado', {
-      method,
-      url: shortUrl,
-      totalHits: this.proxyHits,
-    });
   }
 
   ordersIngested(orders: OrderData[], source: CaptureSource, detail?: string): void {
@@ -108,11 +85,9 @@ export class ActivityLog {
     uniqueOrders: number;
     orderKeys: number;
     merchants: number;
-    proxyHits: number;
     lastCaptureAt: string | null;
-    lastProxyUrl: string | null;
   }): void {
-    if (stats.uniqueOrders === 0 && stats.proxyHits === 0) {
+    if (stats.uniqueOrders === 0) {
       this.logger.info('[STATUS] Aguardando pedidos no Gestor Desktop', {
         dica: 'Execute enable-gestor-debug.ps1, reinicie o Gestor e verifique /diagnostics (cdpConnected: true)',
         health: 'http://127.0.0.1:7420/diagnostics',
@@ -124,18 +99,14 @@ export class ActivityLog {
       pedidosNoCache: stats.uniqueOrders,
       chavesCache: stats.orderKeys,
       lojas: stats.merchants,
-      requisicoesProxy: stats.proxyHits,
       ultimaCaptura: stats.lastCaptureAt || 'nunca',
-      ultimaUrlProxy: stats.lastProxyUrl ? stats.lastProxyUrl.slice(0, 80) : 'nenhuma',
     });
   }
 
   getMetrics() {
     return {
-      proxyHits: this.proxyHits,
       ordersCaptured: this.ordersCaptured,
       lastCaptureAt: this.lastCaptureAt,
-      lastProxyUrl: this.lastProxyUrl,
     };
   }
 }

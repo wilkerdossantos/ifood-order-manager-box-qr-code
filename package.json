@@ -9,12 +9,10 @@
     "start": "node dist/service/main.js",
     "dev": "tsx src/service/main.ts",
     "stop": "powershell -ExecutionPolicy Bypass -File scripts/stop-dev.ps1",
-    "install:virtual-printer": "powershell -ExecutionPolicy Bypass -File scripts/install-virtual-printer.ps1",
-    "configure:portprompt": "powershell -ExecutionPolicy Bypass -File scripts/configure-portprompt-mode.ps1",
     "enable:gestor": "powershell -ExecutionPolicy Bypass -File scripts/enable-gestor-debug.ps1",
+    "install:virtual-printer": "powershell -ExecutionPolicy Bypass -File scripts/install-virtual-printer.ps1",
+    "configure:bridge": "powershell -ExecutionPolicy Bypass -File scripts/configure-bridge.ps1",
     "test:service": "node scripts/test-service.js",
-    "test:print-pdf": "node scripts/test-print-pdf.js",
-    "print:receiver": "node scripts/print-port-receiver.js",
     "test": "vitest run",
     "test:watch": "vitest"
   },
@@ -22,13 +20,10 @@
     "node": ">=18"
   },
   "dependencies": {
-    "chokidar": "^4.0.3",
-    "node-forge": "^1.3.1",
     "winston": "^3.17.0"
   },
   "devDependencies": {
     "@types/node": "^22.13.10",
-    "@types/node-forge": "^1.3.11",
     "tsx": "^4.19.3",
     "typescript": "^5.8.2",
     "vitest": "^3.0.9"

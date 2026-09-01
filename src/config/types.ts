@@ -9,29 +9,12 @@ export interface OrderData {
 export interface ServiceConfig {
   enabled: boolean;
   pdfMode: boolean;
-  proxyPort: number;
   healthPort: number;
   cachePath: string;
   logPath: string;
   logLevel: 'debug' | 'info' | 'warn' | 'error';
   statusIntervalSeconds: number;
-  logProxyTraffic: boolean;
-  /** Inicia servidor proxy local. Para Gestor Desktop, deixe false. */
-  proxyEnabled: boolean;
-  /**
-   * Intercepta HTTPS (MITM) para capturar pedidos.
-   * false = túnel transparente (não quebra internet, mas não captura HTTPS).
-   * Para Gestor Desktop use false e capture via electron-store.
-   */
-  mitmEnabled: boolean;
-  printerName: string;
-  targetPrinterName: string;
-  pipeName: string;
-  electronAppDataPaths: string[];
   ingestUrlPattern: string;
-  proxyHosts: string[];
-  /** Scan electron-store a cada N segundos */
-  scanIntervalSeconds: number;
   /** Captura via Chrome DevTools Protocol (porta debug do Electron) */
   cdpEnabled: boolean;
   cdpPort: number;
@@ -39,6 +22,8 @@ export interface ServiceConfig {
   /** Salva cópia legível de cada comanda enriquecida (útil com Microsoft Print to PDF) */
   printPreviewEnabled: boolean;
   printPreviewDir: string;
+<<<<<<< HEAD
+=======
   /** Monitora pasta spool da impressora virtual (substituto RedMon no Windows 11) */
   spoolWatchEnabled: boolean;
   spoolDir: string;
@@ -51,50 +36,54 @@ export interface ServiceConfig {
   cdpPrintHookEnabled: boolean;
   /** Scan electron-store / arquivos locais (backup; IndexedDB não é confiável) */
   electronStoreWatchEnabled: boolean;
+>>>>>>> origin/main
   /** Tempo máximo de espera pelo pedido no cache antes de imprimir sem QR (ms) */
   printCacheWaitMs: number;
   /** Idade máxima de pedidos no cache (horas); 0 = sem expiração */
   cacheMaxAgeHours: number;
+  /** Impressora virtual "iFood QR Bridge" (captura o job) */
+  printerName: string;
+  /** Impressora física de destino (recebe a comanda com QR) */
+  targetPrinterName: string;
+  /** Monitora o arquivo output.prn da impressora virtual (porta FILE:) */
+  printFileWatchEnabled: boolean;
+  /** Diretório para arquivos de spool capturados */
+  spoolDir: string;
+  /** Salva dump txt/bin de cada job para debug */
+  printDebugEnabled: boolean;
+  printDebugDir: string;
 }
 
 export const DEFAULT_CONFIG: ServiceConfig = {
   enabled: true,
   pdfMode: false,
-  proxyPort: 8888,
   healthPort: 7420,
   cachePath: '',
   logPath: '',
   logLevel: 'info',
   statusIntervalSeconds: 30,
-  logProxyTraffic: true,
-  proxyEnabled: false,
-  mitmEnabled: false,
-  printerName: 'iFood QR Bridge',
-  targetPrinterName: '',
-  pipeName: 'ifood-qr-service',
-  electronAppDataPaths: [],
-  ingestUrlPattern: '/orders?(?:\\/|\\?|$)|events:polling|expedition|merchant|store|totem',
-  proxyHosts: [
-    'gestordepedidos.ifood.com.br',
-    'gestordepedidos-review-app.ifood.com.br',
-    'api.ifood.com.br',
-    'merchant-api.ifood.com.br',
-  ],
-  scanIntervalSeconds: 5,
+  ingestUrlPattern: '/orders?(?:\\/|\\?|$)|events:polling',
   cdpEnabled: true,
   cdpPort: 9222,
   cdpReconnectSeconds: 8,
   printPreviewEnabled: true,
   printPreviewDir: '',
-  spoolWatchEnabled: false,
+  printCacheWaitMs: 2000,
+  cacheMaxAgeHours: 24,
+  printerName: 'iFood QR Bridge',
+  targetPrinterName: '',
+  printFileWatchEnabled: false,
   spoolDir: '',
   printDebugEnabled: true,
   printDebugDir: '',
+<<<<<<< HEAD
+=======
   printQueueWatchEnabled: false,
   cdpPrintHookEnabled: true,
   electronStoreWatchEnabled: false,
   printCacheWaitMs: 2000,
   cacheMaxAgeHours: 24,
+>>>>>>> origin/main
 };
 
 export interface PrintMeta {

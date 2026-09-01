@@ -1,16 +1,12 @@
 import path from 'node:path';
 
 import { CdpCollector } from '../collector/cdp-collector.js';
-import { ElectronStoreWatcher } from '../collector/electron-store-watcher.js';
 import { OrderCache } from '../collector/order-cache.js';
-import { ProxyInterceptor } from '../collector/proxy-interceptor.js';
-import { loadConfig, getDataDir } from '../config/index.js';
-import { PrintBridgeServer } from '../print/bridge-server.js';
-import { PrintPreviewWriter } from '../print/preview-writer.js';
+import { loadConfig } from '../config/index.js';
+import { FileWatcher } from '../print/file-watcher.js';
 import { PrintDebugWriter } from '../print/print-debug-writer.js';
 import { PrintJobHandler } from '../print/print-job-handler.js';
-import { PrintQueueWatcher } from '../print/queue-watcher.js';
-import { SpoolWatcher } from '../print/spool-watcher.js';
+import { PrintPreviewWriter } from '../print/preview-writer.js';
 import { InvoiceEnricher } from '../qr/invoice-enricher.js';
 import { ActivityLog } from '../utils/activity-log.js';
 import { createLogger } from '../utils/logger.js';
@@ -32,29 +28,9 @@ export class QrService {
   private previewWriter = new PrintPreviewWriter(this.config, this.logger);
   private debugWriter = new PrintDebugWriter(this.config, this.logger);
   private enricher = new InvoiceEnricher(this.cache, this.config, this.previewWriter);
-  private proxy = new ProxyInterceptor({
-    config: this.config,
-    cache: this.cache,
-    logger: this.logger,
-    activity: this.activity,
-    certDir: path.join(getDataDir(), 'certs'),
-  });
-  private electronWatcher = new ElectronStoreWatcher(
-    this.config,
-    this.cache,
-    this.logger,
-    this.activity,
-  );
   private cdpCollector = new CdpCollector(
     this.config,
     this.cache,
-    this.config.cdpPrintHookEnabled ? this.enricher : null,
-    this.logger,
-    this.activity,
-  );
-  private printBridge = new PrintBridgeServer(
-    this.config,
-    this.enricher,
     this.logger,
     this.activity,
   );
@@ -66,31 +42,21 @@ export class QrService {
     this.logger,
     this.activity,
   );
-  private spoolWatcher = new SpoolWatcher(
-    this.config,
-    this.printJobHandler,
-    this.debugWriter,
-    this.logger,
-  );
-  private queueWatcher = new PrintQueueWatcher(this.config, this.printJobHandler, this.logger);
+  private fileWatcher = new FileWatcher(this.config, this.printJobHandler, this.logger);
   private httpApi = new HttpApi({
     config: this.config,
     cache: this.cache,
     enricher: this.enricher,
     logger: this.logger,
     activity: this.activity,
-    getProxyCaPath: () => this.proxy.getCaCertPath(),
     getDiagnostics: () => ({
-      electron: this.electronWatcher.getDiagnostics(),
       cdpConnected: this.cdpCollector.isConnected(),
       cdpPort: this.config.cdpPort,
       cdpEnabled: this.config.cdpEnabled,
       cdpTargets: this.cdpCollector.getAvailableTargets(),
       cdpAttachedSessions: this.cdpCollector.getAttachedSessionCount(),
       printPreviewDir: this.previewWriter.getPreviewDir(),
-      printDebugDir: this.debugWriter.getDebugDir(),
-      spool: this.spoolWatcher.getDiagnostics(),
-      queue: this.queueWatcher.getDiagnostics(),
+      print: this.fileWatcher.getDiagnostics(),
     }),
   });
   private statusReporter = createStatusReporter(
@@ -103,53 +69,21 @@ export class QrService {
   async start(): Promise<void> {
     this.logger.info('Starting iFood QR Service', {
       enabled: this.config.enabled,
-      proxyPort: this.config.proxyPort,
       healthPort: this.config.healthPort,
       logFile: path.join(this.config.logPath, 'service.log'),
       activityFile: path.join(this.config.logPath, 'activity.log'),
     });
 
     await this.httpApi.start();
-    await this.printBridge.start();
-
-    if (this.config.enabled && this.config.proxyEnabled) {
-      try {
-        await this.proxy.start();
-        this.logger.info('Proxy mode', {
-          mitmEnabled: this.config.mitmEnabled,
-          hint: this.config.mitmEnabled
-            ? 'MITM ativo — requer certificado CA'
-            : 'Túnel transparente — não captura HTTPS, mas não quebra internet',
-        });
-      } catch (err) {
-        this.logger.warn('HTTPS proxy failed to start; electron-store watcher remains active', {
-          error: err instanceof Error ? err.message : String(err),
-        });
-      }
-    } else {
-      this.logger.info(
-        'Proxy desabilitado — modo Gestor Desktop (capture via CDP, sem proxy Windows)',
-      );
-    }
 
     if (this.config.enabled) {
-      if (this.config.electronStoreWatchEnabled) {
-        this.electronWatcher.start();
-      } else {
-        this.logger.info('[ELECTRON] Watcher desabilitado — capture via CDP');
-      }
       this.cdpCollector.start();
-      this.spoolWatcher.start();
-      this.queueWatcher.start();
+      this.fileWatcher.start();
     }
 
     this.activity.startupBanner({
       healthPort: this.config.healthPort,
-      proxyPort: this.config.proxyPort,
-      pipe: this.printBridge.getPipePath(),
-      caCert: this.proxy.getCaCertPath(),
       cachePath: this.config.cachePath,
-      watchTargets: this.electronWatcher.getWatchTargets(),
       cdpPort: this.config.cdpPort,
       cdpEnabled: this.config.cdpEnabled,
       printPreviewDir: this.previewWriter.getPreviewDir(),
@@ -157,22 +91,15 @@ export class QrService {
 
     this.statusReporter.start();
 
-    this.logger.info('iFood QR Service ready', {
-      pipe: this.printBridge.getPipePath(),
-      caCert: this.proxy.getCaCertPath(),
-    });
+    this.logger.info('iFood QR Service ready');
   }
 
   async stop(): Promise<void> {
     this.logger.info('Stopping iFood QR Service');
     this.statusReporter.stop();
     this.cache.flush();
-    await this.electronWatcher.stop();
     this.cdpCollector.stop();
-    this.queueWatcher.stop();
-    await this.spoolWatcher.stop();
-    await this.proxy.stop();
-    await this.printBridge.stop();
+    this.fileWatcher.stop();
     await this.httpApi.stop();
   }
 }
