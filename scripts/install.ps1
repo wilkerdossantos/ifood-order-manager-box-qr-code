@@ -74,8 +74,12 @@ if (-not (Test-Path $exeSrc)) {
 Write-Host "[1/7] Copiando arquivos para $InstallDir..." -ForegroundColor Yellow
 New-Item -ItemType Directory -Path $InstallDir -Force | Out-Null
 Copy-Item $exeSrc "$InstallDir\$ExeName" -Force
-Copy-Item "$ScriptDir\forward-raw-print.ps1" "$InstallDir\forward-raw-print.ps1" -Force
-Copy-Item "$ScriptDir\forward-text-print.ps1" "$InstallDir\forward-text-print.ps1" -Force
+# O servico resolve os helpers de encaminhamento em $InstallDir\scripts
+# (veja resolveScriptsDir em raw-forwarder.ts). Copiamos para la e mantemos
+# copia na raiz para compatibilidade com instalacoes antigas.
+New-Item -ItemType Directory -Path "$InstallDir\scripts" -Force | Out-Null
+Copy-Item "$ScriptDir\forward-raw-print.ps1" "$InstallDir\scripts\forward-raw-print.ps1" -Force
+Copy-Item "$ScriptDir\forward-text-print.ps1" "$InstallDir\scripts\forward-text-print.ps1" -Force
 New-Item -ItemType Directory -Path "$DataDir\logs" -Force | Out-Null
 
 # 2. NSSM

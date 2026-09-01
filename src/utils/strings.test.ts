@@ -29,6 +29,22 @@ describe('extractDisplayIdFromInvoice', () => {
     expect(extractDisplayIdFromInvoice('Restaurante\n#1234\nITENS')).toBe('1234');
   });
 
+  it('matches Totem EXPEDICAO shortReference with ESC/POS residue', () => {
+    const invoice = [
+      '!!!              iFood - Totem',
+      '!!!!!!Totem Ifood.com Agencia de Restaurantes On',
+      '!!!!!!                EXPEDICAO',
+      '!!!!!------------------------------------------',
+      '!!!!3B!3B   0270',
+      '!!!!!------------------------------------------',
+      '!!!!!Data: 01/09/2026 - 08:23:31',
+      '!!!!!B!B         Entrega prevista: 08:53',
+      '!!!!!!              SERVIR NA MESA',
+      '!!!!!!ITENS DO PEDIDO (1)',
+    ].join('\n');
+    expect(extractDisplayIdFromInvoice(invoice)).toBe('0270');
+  });
+
   it('does not capture "R" from "Valor total do pedido: R$ 0,00"', () => {
     const invoice = [
       '        iFood',

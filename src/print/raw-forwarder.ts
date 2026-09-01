@@ -24,7 +24,10 @@ export function resolveScriptsDir(): string {
   const candidates = [
     path.join(process.cwd(), 'scripts'),
     ...(MODULE_DIR ? [path.join(MODULE_DIR, '../../scripts')] : []),
+    // Instalador one-click (install.ps1) copia os helpers em scripts\:
     path.join(process.env.ProgramFiles || 'C:\\Program Files', 'iFoodQrService', 'scripts'),
+    // ...mas versoes antigas copiavam na raiz do diretorio de instalacao:
+    path.join(process.env.ProgramFiles || 'C:\\Program Files', 'iFoodQrService'),
   ];
   for (const dir of candidates) {
     if (fs.existsSync(path.join(dir, 'forward-raw-print.ps1'))) {

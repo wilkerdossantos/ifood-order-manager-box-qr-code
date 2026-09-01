@@ -60,6 +60,12 @@ export function extractDisplayIdFromInvoice(invoice: string): string {
   const hashLine = raw.match(/^\s*#\s*([0-9]{3,8})\s*$/m)?.[1];
   if (hashLine) return hashLine;
 
+  // Gestor Totem (EXPEDICAO): o shortReference (4-8 digitos) fica logo apos o
+  // cabecalho EXPEDICAO, cercado por residuo ESC/POS ("3B!3B   0270"). Nao e
+  // uma linha numerica limpa, entao o loop abaixo nao o pega.
+  const expedicao = raw.match(/EXPEDI[CÇ][AÃ]O\s*[^\n]*\n?[\s\S]{0,160}?([0-9]{4,8})(?!\d)/);
+  if (expedicao) return expedicao[1];
+
   // Gestor Desktop v2: shortReference aparece sozinho (4-8 digitos), entre linhas decorativas.
   const stopSection = /^(ITENS|ITEMS|DATA:|ENTREGA|RETIRADA|SERVIR|RESUMO|TOTAL)/i;
   const ignoreLine = /^(ifood|iFood)$/i;
