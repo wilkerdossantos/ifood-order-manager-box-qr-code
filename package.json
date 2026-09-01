@@ -6,6 +6,8 @@
   "main": "dist/service/main.js",
   "scripts": {
     "build": "tsc",
+    "build:exe": "node scripts/build-exe.mjs",
+    "package": "powershell -ExecutionPolicy Bypass -File scripts/package.ps1",
     "start": "node dist/service/main.js",
     "dev": "tsx src/service/main.ts",
     "stop": "powershell -ExecutionPolicy Bypass -File scripts/stop-dev.ps1",
@@ -17,13 +19,15 @@
     "test:watch": "vitest"
   },
   "engines": {
-    "node": ">=18"
+    "node": ">=22"
   },
   "dependencies": {
     "winston": "^3.17.0"
   },
   "devDependencies": {
     "@types/node": "^22.13.10",
+    "esbuild": "^0.28.2",
+    "postject": "^1.0.0-alpha.6",
     "tsx": "^4.19.3",
     "typescript": "^5.8.2",
     "vitest": "^3.0.9"

@@ -22,3 +22,8 @@ coverage/
 
 # Local config overrides
 config.local.json
+
+# Build artifacts (single executable)
+dist-bundle/
+dist-package/
+ifood-qr-service-v*.zip

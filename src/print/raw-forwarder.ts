@@ -5,7 +5,17 @@ import { fileURLToPath } from 'node:url';
 
 import type { Logger } from '../utils/logger.js';
 
-const MODULE_DIR = path.dirname(fileURLToPath(import.meta.url));
+// Sob bundling CJS (build do executável único), import.meta.url é undefined.
+// Guardamos a resolução para não quebrar na inicialização; os demais
+// candidatos (cwd/scripts e ProgramFiles/iFoodQrService/scripts) cobrem o caso.
+function resolveModuleDir(): string | null {
+  try {
+    return path.dirname(fileURLToPath(import.meta.url));
+  } catch {
+    return null;
+  }
+}
+const MODULE_DIR = resolveModuleDir();
 
 export function resolveScriptsDir(): string {
   if (process.env.IFOOD_QR_SCRIPTS_DIR && fs.existsSync(process.env.IFOOD_QR_SCRIPTS_DIR)) {
@@ -13,7 +23,7 @@ export function resolveScriptsDir(): string {
   }
   const candidates = [
     path.join(process.cwd(), 'scripts'),
-    path.join(MODULE_DIR, '../../scripts'),
+    ...(MODULE_DIR ? [path.join(MODULE_DIR, '../../scripts')] : []),
     path.join(process.env.ProgramFiles || 'C:\\Program Files', 'iFoodQrService', 'scripts'),
   ];
   for (const dir of candidates) {
