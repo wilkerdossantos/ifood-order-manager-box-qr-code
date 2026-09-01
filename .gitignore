@@ -27,3 +27,5 @@ config.local.json
 dist-bundle/
 dist-package/
 ifood-qr-service-v*.zip
+ifood-qr-service.exe
+
