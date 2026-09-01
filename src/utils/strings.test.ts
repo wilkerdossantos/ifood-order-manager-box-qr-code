@@ -28,7 +28,6 @@ describe('extractDisplayIdFromInvoice', () => {
   it('matches hash-only line', () => {
     expect(extractDisplayIdFromInvoice('Restaurante\n#1234\nITENS')).toBe('1234');
   });
-<<<<<<< HEAD
 
   it('does not capture "R" from "Valor total do pedido: R$ 0,00"', () => {
     const invoice = [
@@ -43,6 +42,4 @@ describe('extractDisplayIdFromInvoice', () => {
     ].join('\n');
     expect(extractDisplayIdFromInvoice(invoice)).toBe('0238');
   });
-=======
->>>>>>> origin/main
 });

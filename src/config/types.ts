@@ -22,21 +22,6 @@ export interface ServiceConfig {
   /** Salva cópia legível de cada comanda enriquecida (útil com Microsoft Print to PDF) */
   printPreviewEnabled: boolean;
   printPreviewDir: string;
-<<<<<<< HEAD
-=======
-  /** Monitora pasta spool da impressora virtual (substituto RedMon no Windows 11) */
-  spoolWatchEnabled: boolean;
-  spoolDir: string;
-  /** Salva txt/bin de cada job para debug (spool/debug/) */
-  printDebugEnabled: boolean;
-  printDebugDir: string;
-  /** Monitora fila Windows (PORTPROMPT + Print to PDF — experimental) */
-  printQueueWatchEnabled: boolean;
-  /** Hook de impressão no renderer via CDP (principal no Gestor Desktop empacotado) */
-  cdpPrintHookEnabled: boolean;
-  /** Scan electron-store / arquivos locais (backup; IndexedDB não é confiável) */
-  electronStoreWatchEnabled: boolean;
->>>>>>> origin/main
   /** Tempo máximo de espera pelo pedido no cache antes de imprimir sem QR (ms) */
   printCacheWaitMs: number;
   /** Idade máxima de pedidos no cache (horas); 0 = sem expiração */
@@ -76,14 +61,6 @@ export const DEFAULT_CONFIG: ServiceConfig = {
   spoolDir: '',
   printDebugEnabled: true,
   printDebugDir: '',
-<<<<<<< HEAD
-=======
-  printQueueWatchEnabled: false,
-  cdpPrintHookEnabled: true,
-  electronStoreWatchEnabled: false,
-  printCacheWaitMs: 2000,
-  cacheMaxAgeHours: 24,
->>>>>>> origin/main
 };
 
 export interface PrintMeta {

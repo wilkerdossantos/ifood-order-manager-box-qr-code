@@ -46,7 +46,6 @@ describe('OrderCache', () => {
     expect(found?.pickupCode).toBe('AB99');
   });
 
-<<<<<<< HEAD
   it('rejects non-order payloads (shipping config, promotions, webpack chunks)', () => {
     // Config de shipping/promoção (não é pedido — não tem displayId real).
     const shipping = {
@@ -71,8 +70,6 @@ describe('OrderCache', () => {
     expect(cache.ingestPayload(uuidOnly)).toEqual([]);
   });
 
-=======
->>>>>>> origin/main
   it('finds order in Gestor v2 invoice format', () => {
     const gestorV2 = fs.readFileSync(
       path.join(__dirname, '../../docs/fixtures/invoice-gestor-v2.txt'),
