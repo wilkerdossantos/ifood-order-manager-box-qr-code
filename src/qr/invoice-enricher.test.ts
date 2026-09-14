@@ -70,6 +70,23 @@ describe('InvoiceEnricher', () => {
     expect(parsed.invoice.length).toBeGreaterThan(invoiceSample.length);
   });
 
+  it('generates mock payload with varying displayId/pickupCode when mockMode is enabled', async () => {
+    const mockEnricher = new InvoiceEnricher(cache, { ...config, mockMode: true });
+
+    const first = await mockEnricher.enrichInvoiceDetailed(invoiceSample, {
+      printerName: 'Microsoft Print to PDF',
+    });
+    const second = await mockEnricher.enrichInvoiceDetailed(invoiceSample, {
+      printerName: 'Microsoft Print to PDF',
+    });
+
+    expect(first.payload).toContain('LOJA:mock');
+    expect(first.payload).toContain('TIPO:mock');
+    expect(first.payload).toContain('ID:mock');
+    // Códigos variam entre reimpressões.
+    expect(first.payload).not.toBe(second.payload);
+  });
+
   it('returns original invoice when disabled', async () => {
     const disabled = new InvoiceEnricher(cache, { ...config, enabled: false });
     const result = await disabled.enrichInvoice(invoiceSample);

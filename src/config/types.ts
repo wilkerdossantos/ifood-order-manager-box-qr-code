@@ -37,6 +37,8 @@ export interface ServiceConfig {
   /** Salva dump txt/bin de cada job para debug */
   printDebugEnabled: boolean;
   printDebugDir: string;
+  /** Modo mock (apresentação): gera displayId/pickupCode aleatórios a cada impressão */
+  mockMode: boolean;
 }
 
 export const DEFAULT_CONFIG: ServiceConfig = {
@@ -61,6 +63,7 @@ export const DEFAULT_CONFIG: ServiceConfig = {
   spoolDir: '',
   printDebugEnabled: true,
   printDebugDir: '',
+  mockMode: false,
 };
 
 export interface PrintMeta {

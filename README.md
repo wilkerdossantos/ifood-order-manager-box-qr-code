@@ -92,6 +92,7 @@ Arquivo: `%ProgramData%\iFoodQrService\config.json`
 | `printCacheWaitMs` | `2000` | Espera pelo pedido no cache antes de imprimir sem QR |
 | `cacheMaxAgeHours` | `24` | TTL de pedidos no cache (0 = sem expiração) |
 | `printPreviewEnabled` | `true` | Salva cópia legível de cada comanda enriquecida |
+| `mockMode` | `false` | Apresentação: fixa `merchantId`/`orderType`/`orderId` em `mock` e gera `displayId`/`pickupCode` aleatórios a cada impressão |
 
 ## API local
 

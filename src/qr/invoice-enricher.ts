@@ -1,6 +1,7 @@
 import type { OrderData, PrintMeta, ServiceConfig } from '../config/types.js';
 import { injectPdfQrText, injectThermalQr } from '../qr/escpos.js';
 import { generateQrPayload } from '../qr/payload.js';
+import { generateMockOrder } from '../qr/mock.js';
 import type { OrderCache } from '../collector/order-cache.js';
 import type { PrintPreviewWriter } from '../print/preview-writer.js';
 
@@ -42,7 +43,12 @@ export class InvoiceEnricher {
       return { invoice, modified: false, pdfMode: this.shouldUsePdfSafeMode(options) };
     }
 
-    const payload = generateQrPayload(data);
+    // Modo mock (apresentação): sobrescreve os dados reais por valores fixos
+    // 'mock' + displayId/pickupCode aleatórios, para gerar códigos de abertura
+    // de box diferentes a cada reimpressão.
+    const orderData = this.config.mockMode ? generateMockOrder() : data;
+
+    const payload = generateQrPayload(orderData);
     const pdfMode = this.shouldUsePdfSafeMode(options);
 
     const enriched = pdfMode
@@ -58,7 +64,7 @@ export class InvoiceEnricher {
         payload,
         pdfMode,
         printerName: options.printerName,
-        displayId: data.displayId,
+        displayId: orderData.displayId,
       });
     }
 
@@ -67,7 +73,7 @@ export class InvoiceEnricher {
       modified,
       pdfMode,
       payload,
-      order: data,
+      order: orderData,
       previewPath,
     };
   }

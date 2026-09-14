@@ -99,6 +99,7 @@ export class HttpApi {
         printerName: this.options.config.printerName,
         targetPrinterName: this.options.config.targetPrinterName,
         fileWatchEnabled: this.options.config.printFileWatchEnabled,
+        mockMode: this.options.config.mockMode,
         dica: 'Abra *-readable.txt e *-enriched.txt apos cada impressao',
         cache: this.options.cache.getStats(),
         orders: this.options.cache.getAllOrders(),
