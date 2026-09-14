@@ -116,6 +116,14 @@ npm test               # testes unitários
 npm run build          # compila TypeScript
 ```
 
+## Build & release
+
+Para gerar o executável (`.exe`) e empacotar uma versão, veja [BUILD.md](BUILD.md):
+
+- `npm version patch|minor|major` — sobe a versão e cria a git tag
+- `npm run build:exe` — gera `dist-bundle/ifood-qr-service.exe` (Node SEA, rodar no Windows)
+- `npm run package` — monta o zip distribuível `ifood-qr-service-v{versão}.zip`
+
 ### Logs
 
 Com `npm run dev`, o terminal mostra:

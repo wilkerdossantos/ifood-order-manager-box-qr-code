@@ -16,7 +16,10 @@
     "configure:bridge": "powershell -ExecutionPolicy Bypass -File scripts/configure-bridge.ps1",
     "test:service": "node scripts/test-service.js",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "version:patch": "npm version patch",
+    "version:minor": "npm version minor",
+    "version:major": "npm version major"
   },
   "engines": {
     "node": ">=22"

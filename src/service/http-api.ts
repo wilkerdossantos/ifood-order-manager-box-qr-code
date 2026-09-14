@@ -6,6 +6,7 @@ import type { Logger } from '../utils/logger.js';
 import type { ActivityLog } from '../utils/activity-log.js';
 import type { OrderCache } from '../collector/order-cache.js';
 import type { InvoiceEnricher } from '../qr/invoice-enricher.js';
+import { VERSION } from '../version.js';
 
 interface HttpApiOptions {
   config: ServiceConfig;
@@ -73,7 +74,7 @@ export class HttpApi {
       return this.json(res, 200, {
         ok: true,
         enabled: this.options.config.enabled,
-        version: '1.0.0',
+        version: VERSION,
       });
     }
 

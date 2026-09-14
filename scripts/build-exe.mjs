@@ -27,6 +27,10 @@ const isWin = process.platform === 'win32';
 const exeName = isWin ? 'ifood-qr-service.exe' : 'ifood-qr-service';
 const sentinel = 'NODE_SEA_FUSE_fce680ab2cc467b6e072b8b5df1996b2';
 
+const pkg = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf-8'));
+const version = pkg.version;
+const buildTime = new Date().toISOString();
+
 function run(cmd, args, opts = {}) {
   const r = spawnSync(cmd, args, { stdio: 'inherit', cwd: root, ...opts });
   if (r.status !== 0) {
@@ -36,7 +40,7 @@ function run(cmd, args, opts = {}) {
 
 fs.mkdirSync(outDir, { recursive: true });
 
-console.log('[1/4] Bundling com esbuild...');
+console.log(`[1/4] Bundling com esbuild (v${version})...`);
 const bundlePath = path.join(outDir, 'service.cjs');
 await build({
   entryPoints: [path.join(root, 'src/service/main.ts')],
@@ -45,6 +49,10 @@ await build({
   platform: 'node',
   format: 'cjs',
   target: 'node22',
+  define: {
+    'process.env.APP_VERSION': JSON.stringify(version),
+    'process.env.APP_BUILD_TIME': JSON.stringify(buildTime),
+  },
   // winston é JS puro; nada precisa ficar externo. Node builtins são
   // auto-externalizados por platform:node.
 });
@@ -86,5 +94,5 @@ run(process.execPath, [
   sentinel,
 ]);
 
-console.log(`\nOK: ${exePath}`);
+console.log(`\nOK: ${exePath} (v${version})`);
 console.log(`  tamanho: ${fs.statSync(exePath).size} bytes`);

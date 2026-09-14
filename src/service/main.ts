@@ -12,6 +12,7 @@ import { ActivityLog } from '../utils/activity-log.js';
 import { createLogger } from '../utils/logger.js';
 import { HttpApi } from './http-api.js';
 import { createStatusReporter } from './status-reporter.js';
+import { BUILD_TIME, VERSION } from '../version.js';
 
 export class QrService {
   private config = loadConfig();
@@ -68,6 +69,8 @@ export class QrService {
 
   async start(): Promise<void> {
     this.logger.info('Starting iFood QR Service', {
+      version: VERSION,
+      buildTime: BUILD_TIME || undefined,
       enabled: this.config.enabled,
       healthPort: this.config.healthPort,
       logFile: path.join(this.config.logPath, 'service.log'),
