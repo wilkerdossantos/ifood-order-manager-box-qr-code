@@ -9,6 +9,7 @@ import { OrderCache } from '../collector/order-cache.js';
 import type { ServiceConfig } from '../config/types.js';
 import { DEFAULT_CONFIG } from '../config/types.js';
 import { InvoiceEnricher } from './invoice-enricher.js';
+import { latin1Encode } from './escpos.js';
 import pollingFixture from '../../docs/fixtures/polling-response.json' with { type: 'json' };
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -86,7 +87,7 @@ describe('InvoiceEnricher', () => {
     expect(first.payload).not.toBe(second.payload);
   });
 
-  it('rewrites printed invoice to mock order (order number + pickup code) in mockMode', async () => {
+  it('prints Número do Pedido and Código de Retirada above the QR in mockMode (PDF)', async () => {
     const mockEnricher = new InvoiceEnricher(cache, { ...config, mockMode: true });
 
     const detail = await mockEnricher.enrichInvoiceDetailed(invoiceSample, {
@@ -96,11 +97,27 @@ describe('InvoiceEnricher', () => {
     const displayId = detail.order!.displayId;
     const pickupCode = detail.order!.pickupCode;
 
-    // Texto impresso reflete o pedido mock, não o número real (#6798).
-    expect(detail.invoice).toContain(`PEDIDO: #${displayId}`);
-    expect(detail.invoice).toContain(`CÓDIGO DE COLETA: ${pickupCode}`);
-    expect(detail.invoice).not.toContain('#6798');
-    expect(detail.invoice).not.toContain('XY12');
+    // Cabeçalho legível acima do QR.
+    expect(detail.invoice).toContain(`Número do Pedido: ${displayId}`);
+    expect(detail.invoice).toContain(`Código de Retirada: ${pickupCode}`);
+
+    // O cabeçalho vem antes do bloco QR.
+    const headerAt = detail.invoice.indexOf(`Número do Pedido: ${displayId}`);
+    const qrAt = detail.invoice.indexOf('QR:');
+    expect(headerAt).toBeGreaterThan(-1);
+    expect(qrAt).toBeGreaterThan(headerAt);
+
+    // O texto original da comanda NÃO é alterado (mantém o número real #6798).
+    expect(detail.invoice).toContain('#6798');
+  });
+
+  it('prints Número do Pedido above the QR in mockMode (thermal ESC/POS)', async () => {
+    const mockEnricher = new InvoiceEnricher(cache, { ...config, mockMode: true });
+
+    const detail = await mockEnricher.enrichInvoiceDetailed(invoiceSample);
+
+    const displayId = detail.order!.displayId;
+    expect(detail.invoice).toContain(latin1Encode(`Número do Pedido: ${displayId}`));
   });
 
   it('returns original invoice when disabled', async () => {

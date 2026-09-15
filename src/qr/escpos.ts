@@ -20,15 +20,22 @@ export function generateEscPosQrBuffer(data: string): Buffer {
   return Buffer.from(generateEscPosQr(data), 'latin1');
 }
 
-export function injectPdfQrText(invoice: string, payload: string): string {
-  const separator = '\n────────────────────────────────\n';
-  return String(invoice).replace(/\s*$/, '') + `${separator}QR:\n${payload}\n`;
+/** Converte texto legível para ESC/POS centralizado (usado acima do QR). */
+function escPosTextBlock(text: string): string {
+  return '\x1ba\x01' + latin1Encode(text) + '\n\x1ba\x00';
 }
 
-export function injectThermalQr(invoice: string, payload: string): string {
+export function injectPdfQrText(invoice: string, payload: string, header?: string): string {
+  const separator = '\n────────────────────────────────\n';
+  const block = header ? `${header}\n` : '';
+  return String(invoice).replace(/\s*$/, '') + `${separator}${block}QR:\n${payload}\n`;
+}
+
+export function injectThermalQr(invoice: string, payload: string, header?: string): string {
   const separator = '\n────────────────────────────────\n';
   const raw = String(invoice);
   const qr = generateEscPosQr(payload);
+  const headerBlock = header ? escPosTextBlock(header) : '';
 
   // O rodapé do app ("Gestor Web ... - Desktop ...") fica no fim, seguido do
   // corte (GS V). Inserir o QR depois do rodapé (logo antes do corte) faz o
@@ -39,7 +46,7 @@ export function injectThermalQr(invoice: string, payload: string): string {
     const lineStart = raw.lastIndexOf('\n', footerIdx) + 1;
     const head = raw.slice(0, lineStart).replace(/\s*$/, '');
     const tail = raw.slice(lineStart);
-    return head + `${separator}${qr}\n` + tail;
+    return head + `${separator}${headerBlock}${qr}\n` + tail;
   }
 
   // Fallback: antes do corte (GS V = \x1d\x56), com feed extra para o QR
@@ -47,7 +54,7 @@ export function injectThermalQr(invoice: string, payload: string): string {
   const cutIdx = raw.lastIndexOf('\x1d\x56');
   const cut = cutIdx >= 0 ? raw.slice(cutIdx) : '\x1d\x56\x00';
   const body = cutIdx >= 0 ? raw.slice(0, cutIdx) : raw;
-  return body.replace(/\s*$/, '') + `${separator}${qr}` + '\x1b\x64\x02' + cut;
+  return body.replace(/\s*$/, '') + `${separator}${headerBlock}${qr}` + '\x1b\x64\x02' + cut;
 }
 
 /** Extrai texto legivel de comanda ESC/POS para lookup de pedido e debug. */

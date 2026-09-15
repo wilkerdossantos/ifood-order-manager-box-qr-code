@@ -1,7 +1,7 @@
 import type { OrderData, PrintMeta, ServiceConfig } from '../config/types.js';
 import { injectPdfQrText, injectThermalQr } from '../qr/escpos.js';
 import { generateQrPayload } from '../qr/payload.js';
-import { applyMockToInvoice, generateMockOrder, replaceMockTokens } from '../qr/mock.js';
+import { generateMockOrder, mockQrHeader } from '../qr/mock.js';
 import type { OrderCache } from '../collector/order-cache.js';
 import type { PrintPreviewWriter } from '../print/preview-writer.js';
 
@@ -51,15 +51,13 @@ export class InvoiceEnricher {
     const payload = generateQrPayload(orderData);
     const pdfMode = this.shouldUsePdfSafeMode(options);
 
-    // Modo mock: a comanda impressa também reflete o pedido mock — substitui o
-    // número do pedido e inclui o código de retirada no texto (não só no QR).
-    const baseInvoice = this.config.mockMode
-      ? applyMockToInvoice(invoice, orderData)
-      : invoice;
+    // Modo mock: imprime Número do Pedido e Código de Retirada acima do QR,
+    // para leitura manual sem escanear. Não altera o texto original da comanda.
+    const header = this.config.mockMode ? mockQrHeader(orderData) : undefined;
 
     const enriched = pdfMode
-      ? injectPdfQrText(baseInvoice, payload)
-      : injectThermalQr(baseInvoice, payload);
+      ? injectPdfQrText(invoice, payload, header)
+      : injectThermalQr(invoice, payload, header);
 
     const modified = enriched !== invoice;
     let previewPath: string | null = null;
@@ -150,27 +148,18 @@ export class InvoiceEnricher {
 
         if (detail.modified && detail.payload) {
           const out = [...rawInvoice] as Record<string, unknown>[];
-          // Modo mock: reescreve o texto dos itens para exibir o pedido mock.
-          if (this.config.mockMode && detail.order) {
-            for (const item of out) {
-              if (!item || typeof item !== 'object') continue;
-              const row = item as Record<string, unknown>;
-              const type = String(row.type || '').toLowerCase();
-              if (type === 'text') {
-                row.content = replaceMockTokens(String(row.content ?? ''), detail.order);
-              } else if (type === 'leftright') {
-                row.left = replaceMockTokens(String(row.left ?? ''), detail.order);
-                row.right = replaceMockTokens(String(row.right ?? ''), detail.order);
-              }
-            }
-          }
+          // Modo mock: imprime Número do Pedido e Código de Retirada acima do QR.
+          const header = this.config.mockMode && detail.order ? mockQrHeader(detail.order) : '';
           if (detail.pdfMode) {
             out.push({
               type: 'text',
-              content: `\n--------------------------------\nQR:\n${detail.payload}\n`,
+              content: `\n--------------------------------\n${header}QR:\n${detail.payload}\n`,
               align: 'center',
             });
           } else {
+            if (header) {
+              out.push({ type: 'text', content: `\n${header}\n`, align: 'center' });
+            }
             out.push({
               type: 'qrCode',
               content: detail.payload,
