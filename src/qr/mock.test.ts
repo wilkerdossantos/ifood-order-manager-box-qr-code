@@ -17,8 +17,8 @@ describe('generateMockOrder', () => {
     expect(first.displayId).not.toBe(second.displayId);
     expect(first.pickupCode).not.toBe(second.pickupCode);
 
-    // Formatos esperados: displayId de 6 dígitos, pickupCode de 3–4 dígitos.
-    expect(first.displayId).toMatch(/^\d{6}$/);
-    expect(first.pickupCode).toMatch(/^\d{3,4}$/);
+    // Formatos esperados: displayId e pickupCode de 4 dígitos.
+    expect(first.displayId).toMatch(/^\d{4}$/);
+    expect(first.pickupCode).toMatch(/^\d{4}$/);
   });
 });

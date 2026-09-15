@@ -9,10 +9,10 @@ import type { OrderData } from '../config/types.js';
  */
 export function generateMockOrder(): OrderData {
   return {
-    merchantId: 'mock',
-    displayId: String(randomInt(100000, 1000000)), // 6 dígitos
-    pickupCode: String(randomInt(100, 10000)), // 3–4 dígitos
-    orderType: 'mock',
-    orderId: 'mock',
+    merchantId: 'cbe4ca5b-d2f8-4720-a030-34a1dfea6fa5',
+    displayId: String(randomInt(1000, 10000)), // 4 dígitos
+    pickupCode: String(randomInt(1000, 10000)), // 4 dígitos
+    orderType: 'DELIVERY',
+    orderId: '00000000-0000-0000-0000-000000000000',
   };
 }
