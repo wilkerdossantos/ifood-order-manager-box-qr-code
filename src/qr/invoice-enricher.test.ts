@@ -80,11 +80,27 @@ describe('InvoiceEnricher', () => {
       printerName: 'Microsoft Print to PDF',
     });
 
-    expect(first.payload).toContain('LOJA:mock');
-    expect(first.payload).toContain('TIPO:mock');
-    expect(first.payload).toContain('ID:mock');
+    expect(first.payload).toContain('LOJA:cbe4ca5b-d2f8-4720-a030-34a1dfea6fa5');
+    expect(first.payload).toContain('TIPO:DELIVERY');
     // Códigos variam entre reimpressões.
     expect(first.payload).not.toBe(second.payload);
+  });
+
+  it('rewrites printed invoice to mock order (order number + pickup code) in mockMode', async () => {
+    const mockEnricher = new InvoiceEnricher(cache, { ...config, mockMode: true });
+
+    const detail = await mockEnricher.enrichInvoiceDetailed(invoiceSample, {
+      printerName: 'Microsoft Print to PDF',
+    });
+
+    const displayId = detail.order!.displayId;
+    const pickupCode = detail.order!.pickupCode;
+
+    // Texto impresso reflete o pedido mock, não o número real (#6798).
+    expect(detail.invoice).toContain(`PEDIDO: #${displayId}`);
+    expect(detail.invoice).toContain(`CÓDIGO DE COLETA: ${pickupCode}`);
+    expect(detail.invoice).not.toContain('#6798');
+    expect(detail.invoice).not.toContain('XY12');
   });
 
   it('returns original invoice when disabled', async () => {
