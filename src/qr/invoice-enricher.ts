@@ -1,7 +1,7 @@
 import type { OrderData, PrintMeta, ServiceConfig } from '../config/types.js';
 import { injectPdfQrText, injectThermalQr } from '../qr/escpos.js';
 import { generateQrPayload } from '../qr/payload.js';
-import { generateMockOrder } from '../qr/mock.js';
+import { applyMockToInvoice, generateMockOrder, replaceMockTokens } from '../qr/mock.js';
 import type { OrderCache } from '../collector/order-cache.js';
 import type { PrintPreviewWriter } from '../print/preview-writer.js';
 
@@ -43,17 +43,23 @@ export class InvoiceEnricher {
       return { invoice, modified: false, pdfMode: this.shouldUsePdfSafeMode(options) };
     }
 
-    // Modo mock (apresentação): sobrescreve os dados reais por valores fixos
-    // 'mock' + displayId/pickupCode aleatórios, para gerar códigos de abertura
-    // de box diferentes a cada reimpressão.
+    // Modo mock (apresentação): sobrescreve os dados reais por um pedido mock
+    // com displayId/pickupCode aleatórios, para gerar códigos de abertura de
+    // box diferentes a cada reimpressão.
     const orderData = this.config.mockMode ? generateMockOrder() : data;
 
     const payload = generateQrPayload(orderData);
     const pdfMode = this.shouldUsePdfSafeMode(options);
 
+    // Modo mock: a comanda impressa também reflete o pedido mock — substitui o
+    // número do pedido e inclui o código de retirada no texto (não só no QR).
+    const baseInvoice = this.config.mockMode
+      ? applyMockToInvoice(invoice, orderData)
+      : invoice;
+
     const enriched = pdfMode
-      ? injectPdfQrText(invoice, payload)
-      : injectThermalQr(invoice, payload);
+      ? injectPdfQrText(baseInvoice, payload)
+      : injectThermalQr(baseInvoice, payload);
 
     const modified = enriched !== invoice;
     let previewPath: string | null = null;
@@ -144,6 +150,20 @@ export class InvoiceEnricher {
 
         if (detail.modified && detail.payload) {
           const out = [...rawInvoice] as Record<string, unknown>[];
+          // Modo mock: reescreve o texto dos itens para exibir o pedido mock.
+          if (this.config.mockMode && detail.order) {
+            for (const item of out) {
+              if (!item || typeof item !== 'object') continue;
+              const row = item as Record<string, unknown>;
+              const type = String(row.type || '').toLowerCase();
+              if (type === 'text') {
+                row.content = replaceMockTokens(String(row.content ?? ''), detail.order);
+              } else if (type === 'leftright') {
+                row.left = replaceMockTokens(String(row.left ?? ''), detail.order);
+                row.right = replaceMockTokens(String(row.right ?? ''), detail.order);
+              }
+            }
+          }
           if (detail.pdfMode) {
             out.push({
               type: 'text',
