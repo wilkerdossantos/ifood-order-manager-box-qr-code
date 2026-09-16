@@ -1,6 +1,6 @@
 {
   "name": "ifood-order-manager-box-qr-code",
-  "version": "1.1.0",
+  "version": "1.1.1",
   "description": "Windows service that captures order data from Gestor de Pedidos Desktop and enriches thermal receipts with QR codes",
   "type": "module",
   "main": "dist/service/main.js",
